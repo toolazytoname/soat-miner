@@ -21,7 +21,7 @@ All rates below are the miner's own synthetic **T MAC/s** counter; no shares are
 | SM86 candidates only | 49.12 | 68-72 C | 2 stages, group 8, K64 |
 | Original compute, pinned repeat | 47.53 | 74-75 C | ptx K32 4x4/4x2 |
 
-The thermal windows differ, particularly for the candidates-only run. The small apparent gain is **not a proven speedup**. Prior KRig observations were about 59 T MAC/s at 220 W, but those observations are not a matched live A/B test. The source implementation is retained for investigation, and is not silently substituted for a faster production backend.
+The thermal windows differ, particularly for the candidates-only run. The small apparent gain is **not a proven speedup**. Prior KRig observations were about 59 TH/s in its own display/API convention at 220 W; the SOAT counter is explicitly T MAC/s. KRig documents TH/s but does not publish its internal conversion formula, so a cross-implementation percentage is not asserted from those labels alone. Those observations are also not a matched live A/B test. The source implementation is retained for investigation, while the previously validated KRig backend remains available.
 
 ## Next gate
 
@@ -105,3 +105,6 @@ All three larger 256x128 variants passed nine complete-buffer oracle comparisons
 Evidence includes `thermal-aba-summary.json`, `singlefold-correctness-active.json`, `large-correctness-active.json`, `ncu-original-active.json`, `ncu-fixed-active.json`, `ncu-singlefold-active.json`, and `ncu-large-active.json` under the Windows run root. Follow each active JSON's output path to immutable receipts, raw CSV, profiler reports and complete verifier output.
 
 `test-pearl-gpu-context` is a separate explicit live-yield test target, not a CTest registration. It performs one 8 MiB memset and idles for 5..30 seconds, allowing the manager's incoming-GPU policy to be tested without a second heavy compute workload.
+
+
+The official [Pearl miner README](https://github.com/pearl-research-labs/pearl/blob/master/miner/README.md) was reviewed as another open reference: its supported GPU tests currently target SM90 (H100/H200), so it is not a drop-in SM86 backend for this 3090. No vLLM stack, node, wallet or 70B model was installed for that investigation. SOAT's rate formula is directly inspectable in `src/core/telemetry.h` and `PearlPow::macsPerUnit`; [KRig v1.5.12 documentation](https://github.com/kryptex/krig-miner/blob/v1.5.12/README.md) labels Pearl examples TH/s without an internal formula. Device-reported rates, profiler kernel latency and pool-credited work remain distinct evidence.
