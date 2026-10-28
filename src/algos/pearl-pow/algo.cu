@@ -168,7 +168,7 @@ void launchTiledAsync(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
  * cudaFuncSetAttribute is idempotent and cheap; doing it on every launch
  * would not be, hence the flag.
  */
-template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false>
+template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false, bool SINGLE = false>
 void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
                const int8_t *b, uint32_t *t, int m, int n, int k, int rank) {
     constexpr int kStages = ST;
@@ -183,12 +183,12 @@ void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
     static thread_local int optedDevice = -1;
     if (optedDevice != device) {
         const cudaError_t error = cudaFuncSetAttribute(
-            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX>,
+            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE>,
             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
         if (error != cudaSuccess) return;
         optedDevice = device;
     }
-    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX>
+    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE>
         <<<grid, threads, smem, s>>>(a, b, nullptr, t, m, n, k, rank, false);
 }
 
@@ -252,6 +252,8 @@ const TileConfig kTileConfigs[] = {
     // resident blocks at 40 KiB per CTA, while group 4 changes cache reuse.
     {"ampere s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8>},
     {"ampere fixed s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8, 1, true>},
+    {"ampere fixed singlefold s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8, 1, true, true>},
+    {"ampere fixed singlefold m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true, true>},
     {"ampere fixed m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true>},
     {"ampere s2 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 4>},
     {"ampere s3 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 3, 4>},

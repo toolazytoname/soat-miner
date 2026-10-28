@@ -55,3 +55,12 @@ The resource helper and candidates remain experimental and SM86-only in the mine
 Matched stable-temperature A/B/A and actual pool validation of the new specializations are still pending at this checkpoint. The earlier successful TLS pool probe used the previously validated generic S2 kernel and does not establish acceptance of every new specialization.
 
 Evidence remains on Windows in `D:\AI\Playgrounds\soat-miner\20261028-prl3090`: `occupancy-correctness-result.json`, `occupancy-b3-correctness-result.json`, `fixed-correctness-result.json`, individual guard receipts, full transcript logs, and preserved build directories. CPU-only CTest runs must use `ctest --test-dir build/prl3090-fixed -LE gpu --output-on-failure`; a broad CTest invocation with GPU tests enabled also runs the small CUDA cases.
+
+
+## Compiled-only single-fold candidate (pending GPU gate)
+
+An additional opt-in specialization makes one algebraic simplification at fixed mining K/rank: 2048/128 produces exactly sixteen folds, and each of the first sixteen lanes writes its transcript slot once. Thus its old slot is zero, and `rotate_left(0,13) XOR v` equals `v`. Full-warp reduction remains outside the lane predicate. A compile-time branch chooses this path without materializing the generic branch; the generic default is preserved, and a static assertion requires the fixed-mining specialization.
+
+The 128x128 and 64x128/min-three-block variants compiled for SM86 in `build/prl3090-fold`. They have **not passed the GPU differential gate yet at this checkpoint**, and no correctness, speed or pool-acceptance claim is made for them. The ongoing A/B/A uses the earlier preserved baseline and fixed-K/rank binaries, not this new build.
+
+`tools/run_correctness_suite.py` is the reusable gate for these candidates. It runs the resource helper and complete-buffer oracle comparisons at 256x768 (a short M swizzle group), 1024x1024, and 4096x65536, with each direct GPU child under the power/temperature/mutex guard. Three hardware-free fault tests confirm that a guard failure, missing power restore, or zero exit without a full-buffer result aborts the suite. The suite is not an extra automatic GPU workload; run it only after the current comparison has ended.

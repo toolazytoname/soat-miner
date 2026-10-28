@@ -4,10 +4,10 @@
 #include "algos/pearl-pow/noisy_gemm.cuh"
 using namespace om::pearl;
 #define CK(x) do {cudaError_t e=(x);if(e!=cudaSuccess){fprintf(stderr,"CUDA %s at %d\n",cudaGetErrorString(e),__LINE__);return 1;}}while(0)
-template<int WM,int WN,int TM,int TN,int KB,int ST=3,int GM=8,int MIN=1,bool FIX=false>
+template<int WM,int WN,int TM,int TN,int KB,int ST=3,int GM=8,int MIN=1,bool FIX=false,bool SINGLE=false>
 int report(const char* name,int maxThreads) {
     constexpr int threads=WM*WN*32,shared=ST*(WM*TM*16+WN*TN*16)*(KB+16);
-    auto kernel=noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX>;
+    auto kernel=noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE>;
     CK(cudaFuncSetAttribute(kernel,cudaFuncAttributeMaxDynamicSharedMemorySize,shared));
     cudaFuncAttributes a{};CK(cudaFuncGetAttributes(&a,kernel));
     int blocks=0;CK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks,kernel,threads,shared));
@@ -30,5 +30,7 @@ int main() {
     if((report<2,4,2,2,32,2,8,3>("sm86-m64n128-s2-k32-b3",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<2,4,4,2,64,2,8,1,true>("sm86-fixed-s2-g8-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<2,4,2,2,64,2,8,3,true>("sm86-fixed-m64n128-b3-k64",p.maxThreadsPerMultiProcessor)))return 1;
+    if((report<2,4,4,2,64,2,8,1,true,true>("sm86-singlefold-s2-g8-k64",p.maxThreadsPerMultiProcessor)))return 1;
+    if((report<2,4,2,2,64,2,8,3,true,true>("sm86-singlefold-m64n128-b3-k64",p.maxThreadsPerMultiProcessor)))return 1;
     return 0;
 }

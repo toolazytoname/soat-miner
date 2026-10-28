@@ -12,7 +12,7 @@ def save(path,value):
 def sha(path):
  with pathlib.Path(path).open("rb") as f:return hashlib.file_digest(f,"sha256").hexdigest()
 def main():
- ap=argparse.ArgumentParser();ap.add_argument("--output",type=pathlib.Path,required=True);ap.add_argument("--build",choices=["prl3090-baseline","prl3090-ampere","prl3090-fixed"],default="prl3090-fixed");ap.add_argument("--tile",default="=ampere fixed s2 g8 k64");ap.add_argument("--seconds",type=int,default=120);ap.add_argument("--check-only",action="store_true");a=ap.parse_args()
+ ap=argparse.ArgumentParser();ap.add_argument("--output",type=pathlib.Path,required=True);ap.add_argument("--build",choices=["prl3090-baseline","prl3090-ampere","prl3090-fixed","prl3090-fold"],default="prl3090-fixed");ap.add_argument("--tile",default="=ampere fixed s2 g8 k64");ap.add_argument("--seconds",type=int,default=120);ap.add_argument("--check-only",action="store_true");a=ap.parse_args()
  if not 15<=a.seconds<=180:raise ValueError("Profile limit must be 15..180 seconds")
  receipt=json.loads(NCU_RECEIPT.read_text(encoding="utf-8-sig"));ncu=pathlib.Path(receipt["ncu"]);miner=ROOT/"build"/a.build/"soat-miner.exe"
  if not ncu.is_file() or not miner.is_file():raise ValueError("Required profiler or miner binary is missing")

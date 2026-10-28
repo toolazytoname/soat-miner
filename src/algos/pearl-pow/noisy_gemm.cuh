@@ -1076,7 +1076,7 @@ __device__ __forceinline__ void mmaS8(uint32_t d[4], const uint32_t a[4],
  * kWarpsM*kWarpsN*32 threads and grid (n/kBlockN, m/kBlockM).
  */
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
@@ -1089,6 +1089,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
                              int32_t *__restrict__ cNoised,
                              uint32_t *__restrict__ transcripts,
                              int m, int n, int kArg, int rankArg, bool writeCArg) {
+    static_assert(!kSingleFoldP || kMiningP, "Single-slot fold requires fixed mining K/rank");
     // Opt-in mining specialization: preserve the generic kernel by default.
     // Fixing K/rank lets ptxas replace runtime divisions and fold bounds with
     // constants. An incompatible call returns no transcript and fails self-check.
@@ -1308,8 +1309,18 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
                     // fully unrolled double loop. ptxas already handles the
                     // general form better than the "optimised" one. Left as
                     // the general expression on purpose.
-                    if (lane == reduction % kTranscriptU32)
-                        slot[i][j] = rotl32(slot[i][j], kRotation) ^ v;
+                    if constexpr (kSingleFoldP) {
+                        // K=2048/rank=128 gives exactly sixteen folds. Each
+                        // of lanes 0..15 writes its slot exactly once, so its
+                        // old slot is zero: rotl(0,13)^v == v. Other lanes
+                        // still participate in the full-warp XOR above.
+                        // Compile-time selection avoids materializing both
+                        // paths, unlike the rejected runtime ternary above.
+                        if (lane == reduction) slot[i][j] = v;
+                    } else {
+                        if (lane == reduction % kTranscriptU32)
+                            slot[i][j] = rotl32(slot[i][j], kRotation) ^ v;
+                    }
                 }
             }
             ++reduction;
