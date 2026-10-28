@@ -1,3 +1,11 @@
+# Xiaotutou - Pearl / RTX 3090 source experiment
+
+An experimental MIT-licensed fork of SOAT Miner. The focus is a reproducible Windows SM86 build, verified Pearl CUDA kernels, and controlled performance measurements. Original attribution and license notices are retained.
+
+Current status and build instructions: [RTX 3090 experiment](docs/PRL3090.md). No performance improvement or live migration has been verified yet. The original upstream overview follows below.
+
+---
+
 # SOAT Miner
 
 Mines Ergo on your GPU. Autolykos v2, CUDA and Vulkan, Linux and Windows.

@@ -27,3 +27,11 @@ tests/*
 # Re-ignored: the un-ignore above brings subdirectories back, including this
 # one, which an earlier explicit rule had covered.
 tests/__pycache__/
+
+.venv/
+
+.env
+
+*.local.json
+
+runtime/

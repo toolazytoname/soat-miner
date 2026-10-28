@@ -24,10 +24,14 @@ struct Entry {
 };
 
 const Entry kRegistry[] = {
+#if defined(SOAT_PEARL_ONLY_BUILD)
+    {"pearl-pow", &makePearlPow},
+#else
     {"autolykos2", &makeAutolykos2},
     {"pearl-pow", &makePearlPow},
     {"sha3-256t", &makeSha3_256t},
     {"kawpow", &makeKawpow},
+#endif
 };
 }  // namespace
 

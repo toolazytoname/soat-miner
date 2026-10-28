@@ -27,6 +27,7 @@
 // in Solution::extra.
 
 #include <cstdio>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 
@@ -174,11 +175,18 @@ void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
     constexpr int aStride = KKB + 16, bStride = KKB + 16;
     constexpr int blockM = WM * TM * 16, blockN = WN * TN * 16;
     constexpr int smem = kStages * (blockM * aStride + blockN * bStride);
-    static bool optedIn = false;
-    if (!optedIn) {
-        cudaFuncSetAttribute(noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM>,
-                             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
-        optedIn = true;
+    // Each worker thread selects its CUDA device before preparing the algorithm.
+    // Cache only a successful opt-in for that device; a failure must reach the
+    // tuner's normal CUDA-error rejection instead of launching with no shared memory.
+    int device = -1;
+    if (cudaGetDevice(&device) != cudaSuccess) return;
+    static thread_local int optedDevice = -1;
+    if (optedDevice != device) {
+        const cudaError_t error = cudaFuncSetAttribute(
+            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM>,
+            cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
+        if (error != cudaSuccess) return;
+        optedDevice = device;
     }
     noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM>
         <<<grid, threads, smem, s>>>(a, b, nullptr, t, m, n, k, rank, false);
@@ -239,6 +247,13 @@ const TileConfig kTileConfigs[] = {
     {"ptx k32 4x4/2x4", 128, 256, 512, true, 80, 32, &launchPtx<4, 4, 2, 4, 32>},
     {"ptx k32 8x2/2x2", 256, 64, 512, true, 80, 32, &launchPtx<8, 2, 2, 2, 32>},
     {"ptx k32 4x8/2x2", 128, 256, 1024, true, 80, 32, &launchPtx<4, 8, 2, 2, 32>},
+#if defined(SOAT_EXPERIMENTAL_SM86_TILES)
+    // Hypotheses for SM86 only; not claimed faster. 2 stages can allow more
+    // resident blocks at 40 KiB per CTA, while group 4 changes cache reuse.
+    {"ampere s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8>},
+    {"ampere s2 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 4>},
+    {"ampere s3 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 3, 4>},
+#endif
     // Measured and REJECTED, so not carried as candidates (each one costs
     // tuning time on every start). All judged end to end, on both a 4090 and
     // a 5080, by adding them here and seeing whether the tuner ever chose one:
@@ -406,6 +421,15 @@ class PearlPow : public Algorithm {
                     "rejected.\n");
             return false;
         }
+        if (profileRequested_) {
+            for (auto &event : profileEvents_) {
+                if (cudaEventCreate(&event) != cudaSuccess) {
+                    fprintf(stderr, "[pearl-pow] could not create requested profiling events\n");
+                    return false;
+                }
+            }
+            profileEnabled_ = true;
+        }
         return true;
     }
 
@@ -438,14 +462,18 @@ class PearlPow : public Algorithm {
 
         int8_t *dA = nullptr, *dBk = nullptr, *dBn = nullptr;
         uint32_t *dT = nullptr;
-        if (cudaMalloc(&dA, aBytes) != cudaSuccess) return true;   // no memory: skip
-        if (cudaMalloc(&dBk, bBytes) != cudaSuccess) { cudaFree(dA); return true; }
-        if (cudaMalloc(&dBn, bBytes) != cudaSuccess) {
-            cudaFree(dA); cudaFree(dBk); return true;
-        }
-        if (cudaMalloc(&dT, (size_t)tiles * 16 * 4) != cudaSuccess) {
-            cudaFree(dA); cudaFree(dBk); cudaFree(dBn); return true;
-        }
+        // A missing self-check is not a passing self-check. Clean up partial
+        // allocations and refuse to mine if any allocation cannot be made.
+        const auto allocationFailed = [&]() {
+            fprintf(stderr, "[pearl-pow] self-check could not allocate buffers; refusing to mine\n");
+            cudaFree(dA); cudaFree(dBk); cudaFree(dBn); cudaFree(dT);
+            return false;
+        };
+        if (cudaMalloc(&dA, aBytes) != cudaSuccess) return allocationFailed();
+        if (cudaMalloc(&dBk, bBytes) != cudaSuccess) return allocationFailed();
+        if (cudaMalloc(&dBn, bBytes) != cudaSuccess) return allocationFailed();
+        if (cudaMalloc(&dT, (size_t)tiles * 16 * 4) != cudaSuccess)
+            return allocationFailed();
 
         genMatrix<<<(aBytes / 8 + 255) / 256, 256, 0, stream_>>>(dA, aBytes, 0x5e1f01);
         genMatrix<<<(bBytes / 8 + 255) / 256, 256, 0, stream_>>>(dBk, bBytes, 0x5e1f02);
@@ -463,7 +491,8 @@ class PearlPow : public Algorithm {
         const TileConfig &tc = kTileConfigs[tile_];
         bool ok = true;
         if (m % tc.blockM || n % tc.blockN) {
-            ok = true;                       // cannot pose the question here
+            fprintf(stderr, "[pearl-pow] selected tile cannot be self-checked; refusing to mine\n");
+            ok = false;
         } else {
             dim3 grid(n / tc.blockN, m / tc.blockM);
             tc.launch(grid, tc.threads, stream_, dA, tc.nMajorB ? dBn : dBk, dT,
@@ -577,6 +606,7 @@ class PearlPow : public Algorithm {
         for (size_t i = 0; i < sizeof(kTileConfigs) / sizeof(kTileConfigs[0]); i++) {
             const TileConfig &tc = kTileConfigs[i];
             if (arch10_ && arch10_ < tc.minArch) continue;
+            if (!strncmp(tc.name, "ampere ", 7) && arch10_ != 86) continue;
             if (tc.blockK <= 0 || (kK / 32) % (tc.blockK / 32)) continue;
             // Escape hatch for A/B work: SOAT_PEARL_TILE=ptx restricts the
             // sweep to configurations whose name starts with that string, so
@@ -716,11 +746,14 @@ class PearlPow : public Algorithm {
             if (cudaMemcpyAsync(&hits, dHitCount_, sizeof(uint32_t),
                                 cudaMemcpyDeviceToHost, stream_) != cudaSuccess)
                 return false;
+            if (profileSample_ && cudaEventRecord(profileEvents_[4], stream_) != cudaSuccess)
+                return false;
             if (cudaStreamSynchronize(stream_) != cudaSuccess) {
                 fprintf(stderr, "[pearl-pow] attempt failed: %s\n",
                         cudaGetErrorString(cudaGetLastError()));
                 return false;
             }
+            if (profileSample_ && !finishProfile()) return false;
             if (hits == 0) continue;
             if (hits > kMaxHits) hits = kMaxHits;
 
@@ -785,6 +818,11 @@ class PearlPow : public Algorithm {
         owned_.clear();
         allocated_ = false;
         haveJob_ = false;
+        profileEnabled_ = profileSample_ = false;
+        for (auto &event : profileEvents_) {
+            if (event) cudaEventDestroy(event);
+            event = nullptr;
+        }
     }
 
    private:
@@ -1010,8 +1048,41 @@ class PearlPow : public Algorithm {
         return true;
     }
 
+    // Diagnostic sampling only: events use the existing stream and are read
+    // after the normal hit-count synchronization. No extra per-sample device
+    // synchronization or arithmetic change; disabled unless explicitly requested.
+    bool finishProfile() {
+        profileSample_ = false;
+        const double wallMs = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - profileHostStart_).count();
+        float stages[4] = {};
+        for (int i = 0; i < 4; i++)
+            if (cudaEventElapsedTime(&stages[i], profileEvents_[i], profileEvents_[i+1]) != cudaSuccess)
+                return false;
+        for (int i = 0; i < 4; i++) profileStageSum_[i] += stages[i];
+        profileWallSum_ += wallMs;
+        if (++profileSamples_ == 16) {
+            fprintf(stderr,
+                "{\"event\":\"pearl_profile\",\"samples\":%u,\"prepare_ms\":%.6f,"
+                "\"gemm_ms\":%.6f,\"scan_ms\":%.6f,\"readback_ms\":%.6f,"
+                "\"attempt_wall_ms\":%.6f,\"sample_every_attempts\":256}\n",
+                profileSamples_, profileStageSum_[0]/profileSamples_,
+                profileStageSum_[1]/profileSamples_,profileStageSum_[2]/profileSamples_,
+                profileStageSum_[3]/profileSamples_,profileWallSum_/profileSamples_);
+            profileSamples_ = 0;
+            profileWallSum_ = 0;
+            for (double &value : profileStageSum_) value = 0;
+        }
+        return true;
+    }
+
     /** Per-attempt work: A's chain, the GEMM, and the PoW scan. */
     bool runAttempt(uint64_t nonce) {
+        profileSample_ = profileEnabled_ && (++profileAttempts_ % 256 == 0);
+        if (profileSample_) {
+            profileHostStart_ = std::chrono::steady_clock::now();
+            if (cudaEventRecord(profileEvents_[0], stream_) != cudaSuccess) return false;
+        }
         const size_t aBytes = (size_t)shape_.m * kK;
 
         cudaMemsetAsync(dHitCount_, 0, sizeof(uint32_t), stream_);
@@ -1031,14 +1102,20 @@ class PearlPow : public Algorithm {
             dA_, dEAL_, dArF_, dArS_, dAn_, shape_.m, kK, kRank);
         // Whichever tile configuration prepare() measured fastest on this
         // card. See kTileConfigs for why that is not a constant.
+        if (profileSample_ && cudaEventRecord(profileEvents_[1], stream_) != cudaSuccess)
+            return false;
         const TileConfig &tc = kTileConfigs[tile_];
         dim3 grid(shape_.n / tc.blockN, shape_.m / tc.blockM);
         tc.launch(grid, tc.threads, stream_, dAn_, tc.nMajorB ? dBnT_ : dBn_,
                   dTranscripts_,
                   (int)shape_.m, (int)shape_.n, (int)kK, kRank);
+        if (profileSample_ && cudaEventRecord(profileEvents_[2], stream_) != cudaSuccess)
+            return false;
         powScan<<<(tiles() + 255) / 256, 256, 0, stream_>>>(
             dTranscripts_, tiles(), dCommitA_, (const uint32_t *)dTarget_,
             dHitIndex_, dHitDigest_, dHitCount_, kMaxHits);
+        if (profileSample_ && cudaEventRecord(profileEvents_[3], stream_) != cudaSuccess)
+            return false;
         return cudaGetLastError() == cudaSuccess;
     }
 
@@ -1330,6 +1407,13 @@ class PearlPow : public Algorithm {
     uint64_t jobSalt_ = 0, btSeed_ = 0;
     std::vector<Win> wins_;
 
+    bool profileRequested_ = getenv("SOAT_PEARL_PROFILE") != nullptr;
+    bool profileEnabled_ = false, profileSample_ = false;
+    uint64_t profileAttempts_ = 0;
+    unsigned profileSamples_ = 0;
+    cudaEvent_t profileEvents_[5] = {};
+    double profileStageSum_[4] = {}, profileWallSum_ = 0;
+    std::chrono::steady_clock::time_point profileHostStart_;
     cudaStream_t stream_ = nullptr;
     std::vector<void *> owned_;
 

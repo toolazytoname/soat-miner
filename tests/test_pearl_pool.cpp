@@ -30,6 +30,7 @@ static std::string notify(const std::string &header, const std::string &target,
 }
 
 int main() {
+    const uint64_t oneLimbs[4] = {1, 0, 0, 0};
     bool ok = true;
     ok &= expect("JSON quotes every control character",
                  jsonQuoted("a\"\\\b\f\n\r\t\x01z"),
@@ -164,10 +165,10 @@ int main() {
                      scaledHard.le(scaledEasy) && hardBound.le(scaledHard));
     pearl::U256 oneFactor;
     ok &= expectBool("that factor is exactly 524,288",
-                     pearl::U256::fromLimbs((const uint64_t[4]){1, 0, 0, 0})
+                     pearl::U256::fromLimbs(oneLimbs)
                              .mul(524288ull, &oneFactor) &&
                      cfg.penalizedTarget(
-                         pearl::U256::fromLimbs((const uint64_t[4]){1, 0, 0, 0}),
+                         pearl::U256::fromLimbs(oneLimbs),
                          &scaledEasy) &&
                      scaledEasy.le(oneFactor) && oneFactor.le(scaledEasy));
     // The stale-target regression still bites: a candidate that only passed
@@ -224,7 +225,7 @@ int main() {
         c.commonDim = 2048;
         c.rank = 128;
         const double macs = (double)c.tileSize() * c.commonDim;
-        pearl::U256 one = pearl::U256::fromLimbs((const uint64_t[4]){1, 0, 0, 0});
+        pearl::U256 one = pearl::U256::fromLimbs(oneLimbs);
         pearl::U256 scaled;
         ok &= expectBool("a candidate costs tileSize * k MACs", macs == 524288.0);
         ok &= expectBool("at rank 128 the target factor is the same number",

@@ -214,6 +214,7 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
                                        opt.worker, opt.pearlTranscript);
         source.reset(pp);
         stats.source = source->describe();
+#if !defined(SOAT_PEARL_ONLY_BUILD)
     } else if (isKawpow) {
         if (opt.poolHost.empty()) {
             logLine(tty, "error",
@@ -269,6 +270,7 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
         }
         noncePrefix = ks->noncePrefix();
         nonceBits = ks->nonceBitsOwned();
+#endif
     } else if (isBc3) {
         // BitcoinIII to a pool. There is no solo path yet: solo would mean
         // getblocktemplate against a bitcoinIII node and assembling the

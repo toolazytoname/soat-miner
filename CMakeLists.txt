@@ -40,6 +40,9 @@ if(NOT DEFINED SOAT_ARCH_FROM_USER)
   endif()
 endif()
 
+option(SOAT_PEARL_ONLY_BUILD "Build a Pearl-only miner without unrelated GPU algorithms" OFF)
+option(SOAT_EXPERIMENTAL_SM86_TILES "Include unproven Ampere tuning candidates" OFF)
+
 project(soat-miner LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -120,9 +123,11 @@ set(SOAT_CUDA_SOURCES
   src/algos/autolykos2/algo.cu
   src/algos/pearl-pow/algo.cu
   src/algos/sha3-256t/algo.cu
+  src/algos/kawpow/algo.cu
   src/core/run.cpp
   src/core/stratum.cpp
   src/core/stratum_btc.cpp
+  src/core/stratum_kawpow.cpp
 )
 
 # Push the two .cpp files through nvcc, matching the Makefile's `-x cu`.
@@ -130,11 +135,24 @@ set_source_files_properties(
   src/core/run.cpp
   src/core/stratum.cpp
   src/core/stratum_btc.cpp
+  src/core/stratum_kawpow.cpp
   PROPERTIES LANGUAGE CUDA
 )
 
-add_executable(soat-miner ${SOAT_CUDA_SOURCES})
+if(SOAT_PEARL_ONLY_BUILD)
+  list(REMOVE_ITEM SOAT_CUDA_SOURCES
+    src/algos/autolykos2/algo.cu src/algos/sha3-256t/algo.cu
+    src/algos/kawpow/algo.cu src/core/stratum_kawpow.cpp)
+endif()
 
+add_executable(soat-miner ${SOAT_CUDA_SOURCES})
+if(SOAT_PEARL_ONLY_BUILD)
+  target_compile_definitions(soat-miner PRIVATE SOAT_PEARL_ONLY_BUILD=1)
+endif()
+
+if(SOAT_EXPERIMENTAL_SM86_TILES)
+  target_compile_definitions(soat-miner PRIVATE SOAT_EXPERIMENTAL_SM86_TILES=1)
+endif()
 target_include_directories(soat-miner PRIVATE src)
 
 # Separable compilation is deliberately OFF. It runs the device linker, and
@@ -183,4 +201,34 @@ if(BUILD_TESTING)
   add_executable(test-bc3-destination tests/test_bc3_destination.cpp)
   target_include_directories(test-bc3-destination PRIVATE src)
   add_test(NAME bc3-destination-schema COMMAND test-bc3-destination)
+  add_executable(test-pearl-pool tests/test_pearl_pool.cpp)
+  target_include_directories(test-pearl-pool PRIVATE src)
+  if(WIN32)
+    target_link_libraries(test-pearl-pool PRIVATE ws2_32)
+  endif()
+  add_test(NAME pearl-pool-offline COMMAND test-pearl-pool)
+endif()
+
+# Explicitly opt in: these targets contain CUDA kernels and their tests use a GPU.
+option(SOAT_ENABLE_PEARL_GPU_TESTS "Build Pearl CUDA correctness tests" OFF)
+if(SOAT_ENABLE_PEARL_GPU_TESTS)
+  add_executable(test-pearl-mining-shape tests/test_pearl_mining_shape.cu)
+  target_include_directories(test-pearl-mining-shape PRIVATE src)
+  target_compile_options(test-pearl-mining-shape PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3>)
+  add_test(NAME pearl-mining-shape-ptx64
+           COMMAND test-pearl-mining-shape 1024 1024 2048 128 ptx 64)
+  add_test(NAME pearl-mining-shape-ptx32
+           COMMAND test-pearl-mining-shape 1024 1024 2048 128 ptx 32)
+  add_test(NAME pearl-mining-shape-async
+           COMMAND test-pearl-mining-shape 1024 1024 2048 128 async)
+  add_test(NAME pearl-mining-shape-ampere-s2-g8
+           COMMAND test-pearl-mining-shape 1024 1024 2048 128 ampere-s2-g8)
+  add_test(NAME pearl-mining-shape-ampere-s2-g4
+           COMMAND test-pearl-mining-shape 1024 1024 2048 128 ampere-s2-g4)
+  add_test(NAME pearl-mining-shape-ampere-s3-g4
+           COMMAND test-pearl-mining-shape 1024 1024 2048 128 ampere-s3-g4)
+  set_tests_properties(pearl-mining-shape-ptx64 pearl-mining-shape-ptx32
+                       pearl-mining-shape-async pearl-mining-shape-ampere-s2-g8
+                       pearl-mining-shape-ampere-s2-g4 pearl-mining-shape-ampere-s3-g4
+                       PROPERTIES LABELS "gpu" TIMEOUT 120)
 endif()

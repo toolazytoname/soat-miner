@@ -28,7 +28,11 @@ static BOOL WINAPI consoleHandler(DWORD type) {
 int main(int argc, char **argv) {
     using namespace om;
 
+#if defined(SOAT_PEARL_ONLY_BUILD)
+    std::string algoName = "pearl-pow";
+#else
     std::string algoName = "autolykos2";
+#endif
     RunOptions opt;
     opt.backendLabel = "CUDA";
     int deviceIndex = 0;  // which CUDA GPU; one process per GPU for a rig
@@ -118,7 +122,7 @@ int main(int argc, char **argv) {
         } else if (a == "--help" || a == "-h") {
             printf(
                 "SOAT Miner (CUDA) - open-source GPU miner\n\n"
-                "  --algo NAME       algorithm (default autolykos2)\n"
+                "  --algo NAME       algorithm (see --list-algos for this build)\n"
                 "  --list-algos      list compiled-in algorithms\n"
                 "  --list-devices    list CUDA GPUs and exit\n"
                 "  --device N        GPU index (default 0; one process per GPU)\n"
