@@ -1076,18 +1076,26 @@ __device__ __forceinline__ void mmaS8(uint32_t d[4], const uint32_t a[4],
  * kWarpsM*kWarpsN*32 threads and grid (n/kBlockN, m/kBlockM).
  */
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
 // The bound tells ptxas to fit one block of this size per SM, which is the
-// occupancy these shapes get anyway.
-__global__ __launch_bounds__(kWarpsM *kWarpsN * 32, 1) void noisyGemmPtx(
+// occupancy these shapes get anyway. An opt-in minimum can test smaller
+// SM86 blocks under a tighter register budget; the default is unchanged.
+__global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmPtx(
     const int8_t *__restrict__ A,
                              const int8_t *__restrict__ Bn,
                              int32_t *__restrict__ cNoised,
                              uint32_t *__restrict__ transcripts,
-                             int m, int n, int k, int rank, bool writeC) {
+                             int m, int n, int kArg, int rankArg, bool writeCArg) {
+    // Opt-in mining specialization: preserve the generic kernel by default.
+    // Fixing K/rank lets ptxas replace runtime divisions and fold bounds with
+    // constants. An incompatible call returns no transcript and fails self-check.
+    if (kMiningP && (kArg != 2048 || rankArg != 128 || writeCArg)) return;
+    const int k = kMiningP ? 2048 : kArg;
+    const int rank = kMiningP ? 128 : rankArg;
+    const bool writeC = kMiningP ? false : writeCArg;
     constexpr int kK32 = 32;                       // the instruction's k
     constexpr int kBlockM = kWarpsM * kTilesM * kHashTile;
     constexpr int kBlockN = kWarpsN * kTilesN * kHashTile;

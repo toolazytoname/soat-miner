@@ -168,7 +168,7 @@ void launchTiledAsync(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
  * cudaFuncSetAttribute is idempotent and cheap; doing it on every launch
  * would not be, hence the flag.
  */
-template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8>
+template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false>
 void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
                const int8_t *b, uint32_t *t, int m, int n, int k, int rank) {
     constexpr int kStages = ST;
@@ -183,12 +183,12 @@ void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
     static thread_local int optedDevice = -1;
     if (optedDevice != device) {
         const cudaError_t error = cudaFuncSetAttribute(
-            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM>,
+            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX>,
             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
         if (error != cudaSuccess) return;
         optedDevice = device;
     }
-    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM>
+    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX>
         <<<grid, threads, smem, s>>>(a, b, nullptr, t, m, n, k, rank, false);
 }
 
@@ -251,8 +251,20 @@ const TileConfig kTileConfigs[] = {
     // Hypotheses for SM86 only; not claimed faster. 2 stages can allow more
     // resident blocks at 40 KiB per CTA, while group 4 changes cache reuse.
     {"ampere s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8>},
+    {"ampere fixed s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8, 1, true>},
+    {"ampere fixed m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true>},
     {"ampere s2 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 4>},
     {"ampere s3 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 3, 4>},
+    // Smaller 64x128 / 128x64 blocks trade data reuse for more resident CTAs.
+    // Kept experimental until full-buffer correctness and thermal A/B/A pass.
+    {"ampere m64n128 s2 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8>},
+    {"ampere m64n128 s3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 3, 8>},
+    {"ampere m128n64 s2 k64", 128, 64, 256, true, 86, 64, &launchPtx<4, 2, 2, 2, 64, 2, 8>},
+    {"ampere m64n128 s2 k32", 64, 128, 256, true, 86, 32, &launchPtx<2, 4, 2, 2, 32, 2, 8>},
+    // 90 registers caps the smaller default block at two CTAs on SM86.
+    // Request three CTAs (<=~85 registers/thread); spills/performance measured.
+    {"ampere m64n128 s2 k64 b3", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3>},
+    {"ampere m64n128 s2 k32 b3", 64, 128, 256, true, 86, 32, &launchPtx<2, 4, 2, 2, 32, 2, 8, 3>},
 #endif
     // Measured and REJECTED, so not carried as candidates (each one costs
     // tuning time on every start). All judged end to end, on both a 4090 and
@@ -612,8 +624,12 @@ class PearlPow : public Algorithm {
             // sweep to configurations whose name starts with that string, so
             // "is the new kernel actually faster end to end" can be answered
             // by measurement instead of by scaling one number by another.
-            if (tileFilter_ && strncmp(tc.name, tileFilter_, strlen(tileFilter_)))
-                continue;
+            if (tileFilter_) {
+                const bool exact = tileFilter_[0] == '=';
+                const char *filter = tileFilter_ + (exact ? 1 : 0);
+                if (exact ? strcmp(tc.name, filter) : strncmp(tc.name, filter, strlen(filter)))
+                    continue;
+            }
             if (s.m % tc.blockM || s.n % tc.blockN) continue;
             dim3 grid(s.n / tc.blockN, s.m / tc.blockM);
 
@@ -1407,7 +1423,7 @@ class PearlPow : public Algorithm {
     uint64_t jobSalt_ = 0, btSeed_ = 0;
     std::vector<Win> wins_;
 
-    bool profileRequested_ = getenv("SOAT_PEARL_PROFILE") != nullptr;
+    bool profileRequested_ = getenv("SOAT_PEARL_PROFILE") && !strcmp(getenv("SOAT_PEARL_PROFILE"), "1");
     bool profileEnabled_ = false, profileSample_ = false;
     uint64_t profileAttempts_ = 0;
     unsigned profileSamples_ = 0;
