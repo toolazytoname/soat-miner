@@ -1,5 +1,5 @@
 import math,unittest
-from analyze_matched_backends import weighted_window,validate_window_units
+from analyze_matched_backends import weighted_window,validate_window_units,measurement_start
 def row(epoch,rate,core=74):
     return {"Epoch":epoch,"ReportedRate":rate,"Gpu":{"PowerLimit":220,"Power":220 if rate else 8,"Temperature":core,"Hotspot":90,"MemoryJunction":80}}
 class WeightedBenchmark(unittest.TestCase):
@@ -11,6 +11,12 @@ class WeightedBenchmark(unittest.TestCase):
         rows=[dict(row(i,60),ReportedRateUnit="T MAC/s") for i in range(0,201,5)]
         rows[-2].pop("ReportedRateUnit")
         with self.assertRaises(ValueError):validate_window_units(rows,"T MAC/s")
+    def test_intentional_cooldown_is_not_counted_as_mining_time(self):
+        session={"StartTime":"1970-01-01T00:01:40+00:00"}
+        self.assertEqual(measurement_start({"analysis_anchor":"first_selected_profile_epoch"},session,[row(300,0)]),300)
+    def test_legacy_round_keeps_its_recorded_anchor(self):
+        session={"StartTime":"1970-01-01T00:01:40+00:00"}
+        self.assertEqual(measurement_start({},session,[row(300,0)]),100)
     def test_waiting_time_is_included_in_wall_throughput(self):
         rows=[row(i,0 if i<10 else 60) for i in range(0,21,5)]
         result=weighted_window(rows,20)

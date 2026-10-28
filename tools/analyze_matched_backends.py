@@ -35,6 +35,9 @@ def validate_window_units(rows,expected,seconds=180,end_epoch=None):
     measured=[a for a,b in zip(rows,rows[1:]) if b["Epoch"]>start and a["Epoch"]<=end]
     measured+=[next(r for r in reversed(rows) if r["Epoch"]<=end)]
     if any(r.get("ReportedRateUnit")!=expected for r in measured):raise ValueError("Backend units changed inside measured window")
+def measurement_start(plan,session,rows):
+    if plan.get("analysis_anchor")=="first_selected_profile_epoch":return finite(rows[0]["Epoch"])
+    return datetime.datetime.fromisoformat(session["StartTime"]).timestamp()
 def case(root,name,final):
     start=load(root/(name+"-start.json"));s=start["session"];backend=start["backend"]
     path=pathlib.Path(s["RunDirectory"])/"telemetry.ndjson"
@@ -43,7 +46,8 @@ def case(root,name,final):
     expected="T MAC/s" if backend=="soat" else "TH/s"
     plan=load(root/"plan.json")
     planned=next(c["planned_seconds"] for c in plan["cases"] if c["name"]==name)
-    target=datetime.datetime.fromisoformat(s["StartTime"]).timestamp()+planned
+    anchor=measurement_start(plan,s,rows)
+    target=anchor+planned
     complete=rows[-1]["Epoch"]>=target
     if final and not complete:raise ValueError("Planned measurement window not fully collected")
     measured_end=target if complete else rows[-1]["Epoch"]
@@ -58,7 +62,7 @@ def case(root,name,final):
         if not stop.get("operator_completed_case") or after.get("Status")!="stopped" or not after.get("PowerRestored") or after.get("StopReason")!="user_stop" or stop["actual_after"].get("OldProcesses"):raise ValueError("Case stop/ownership/power gate failed")
         if after.get("SessionId")!=s["SessionId"]:raise ValueError("Case session changed")
         if after.get("RejectedShares",0) or after.get("StaleShares",0) or not after.get("AcceptedShares",0):raise ValueError("Real-pool share acceptance gate failed")
-    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"planned_seconds":planned,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
+    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"planned_seconds":planned,"measurement_start_epoch":anchor,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
 def analyze(root,unit_receipt):
     units=load(unit_receipt)
     if units.get("status")!="passed" or units.get("native_KRig_TH_to_Tmac_factor")!=1:raise ValueError("Independent unit calibration is required")
