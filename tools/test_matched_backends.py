@@ -26,6 +26,12 @@ class WeightedBenchmark(unittest.TestCase):
             if key=="PowerLimit":rows[1]["Gpu"][key]=value
             else:rows[1][key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):weighted_window(rows,20)
+    def test_stop_latency_does_not_move_the_planned_measurement_window(self):
+        rows=[row(i,60) for i in range(0,31,5)]+[row(35,0,61),row(40,0,60)]
+        result=weighted_window(rows,20,end_epoch=30)
+        self.assertEqual(result["time_weighted_Tmac_s"],60);self.assertTrue(result["steady"])
+    def test_measurement_end_requires_real_coverage(self):
+        with self.assertRaises(ValueError):weighted_window([row(0,60),row(10,60),row(20,60)],20,end_epoch=25)
     def test_thermal_drift_does_not_pass_as_steady(self):
         result=weighted_window([row(0,60,70),row(10,60,74),row(20,60,75)],20)
         self.assertFalse(result["steady"])

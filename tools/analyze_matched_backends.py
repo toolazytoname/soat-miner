@@ -4,11 +4,12 @@ def load(path):return json.loads(pathlib.Path(path).read_text(encoding="utf-8-si
 def finite(value):
     if isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(value):raise ValueError("Missing or invalid numeric telemetry")
     return float(value)
-def weighted_window(rows,seconds=180):
+def weighted_window(rows,seconds=180,end_epoch=None):
     if len(rows)<2:raise ValueError("Insufficient telemetry")
     for a,b in zip(rows,rows[1:]):
         if not 0<b["Epoch"]-a["Epoch"]<=15:raise ValueError("Non-monotonic or missing telemetry")
-    end=finite(rows[-1]["Epoch"]);start=end-seconds
+    end=finite(rows[-1]["Epoch"] if end_epoch is None else end_epoch);start=end-seconds
+    if end>rows[-1]["Epoch"]:raise ValueError("Requested measurement end is not covered")
     if rows[0]["Epoch"]>start:raise ValueError("Tail window is not fully covered")
     pieces=[];thermal=[]
     for a,b in zip(rows,rows[1:]):
@@ -22,14 +23,17 @@ def weighted_window(rows,seconds=180):
         if any(v>=limit for v,limit in zip(values,(80,100,96))):raise ValueError("Thermal protection threshold reached")
         pieces.append((duration,rate,power));thermal.append(values)
     if abs(sum(p[0] for p in pieces)-seconds)>.001:raise ValueError("Incomplete tail coverage")
-    thermal.append([finite(rows[-1]["Gpu"][k]) for k in ("Temperature","Hotspot","MemoryJunction")])
+    boundary=next(r for r in reversed(rows) if r["Epoch"]<=end)
+    thermal.append([finite(boundary["Gpu"][k]) for k in ("Temperature","Hotspot","MemoryJunction")])
     ranges=[max(v[i] for v in thermal)-min(v[i] for v in thermal) for i in range(3)]
     mean=sum(d*r for d,r,w in pieces)/seconds;power=sum(d*w for d,r,w in pieces)/seconds
     active=sum(d for d,r,w in pieces if r>0)
     return {"tail_seconds":seconds,"tail_start_epoch":start,"tail_end_epoch":end,"time_weighted_Tmac_s":mean,"active_time_weighted_Tmac_s":sum(d*r for d,r,w in pieces if r>0)/active if active else 0,"idle_wall_seconds":seconds-active,"mean_gpu_power_watts":power,"gpu_Tmac_per_joule":mean/power if power else None,"thermal_range_c":{"core":ranges[0],"hotspot":ranges[1],"memory":ranges[2]},"steady":all(v<=2 for v in ranges),"points":len(pieces)}
-def validate_window_units(rows,expected,seconds=180):
-    start=rows[-1]["Epoch"]-seconds
-    measured=[a for a,b in zip(rows,rows[1:]) if b["Epoch"]>start]+rows[-1:]
+def validate_window_units(rows,expected,seconds=180,end_epoch=None):
+    end=rows[-1]["Epoch"] if end_epoch is None else end_epoch
+    start=end-seconds
+    measured=[a for a,b in zip(rows,rows[1:]) if b["Epoch"]>start and a["Epoch"]<=end]
+    measured+=[next(r for r in reversed(rows) if r["Epoch"]<=end)]
     if any(r.get("ReportedRateUnit")!=expected for r in measured):raise ValueError("Backend units changed inside measured window")
 def case(root,name,final):
     start=load(root/(name+"-start.json"));s=start["session"];backend=start["backend"]
@@ -37,10 +41,16 @@ def case(root,name,final):
     rows=[json.loads(v) for v in path.read_text(encoding="utf-8-sig").splitlines() if v.strip()]
     rows=[r for r in rows if r.get("Stage")=="selected-profile"]
     expected="T MAC/s" if backend=="soat" else "TH/s"
-    validate_window_units(rows,expected)
+    plan=load(root/"plan.json")
+    planned=next(c["planned_seconds"] for c in plan["cases"] if c["name"]==name)
+    target=datetime.datetime.fromisoformat(s["StartTime"]).timestamp()+planned
+    complete=rows[-1]["Epoch"]>=target
+    if final and not complete:raise ValueError("Planned measurement window not fully collected")
+    measured_end=target if complete else rows[-1]["Epoch"]
+    validate_window_units(rows,expected,end_epoch=measured_end)
     for a,b in zip(rows,rows[1:]):
         if any(b.get(k,0)<a.get(k,0) for k in ("AcceptedShares","RejectedShares","StaleShares")):raise ValueError("Share counters went backwards")
-    tail=weighted_window(rows)
+    tail=weighted_window(rows,end_epoch=measured_end)
     last=rows[-1];stop=None
     if final:
         stop=load(root/(name+"-stop.json"))
@@ -48,7 +58,7 @@ def case(root,name,final):
         if not stop.get("operator_completed_case") or after.get("Status")!="stopped" or not after.get("PowerRestored") or after.get("StopReason")!="user_stop" or stop["actual_after"].get("OldProcesses"):raise ValueError("Case stop/ownership/power gate failed")
         if after.get("SessionId")!=s["SessionId"]:raise ValueError("Case session changed")
         if after.get("RejectedShares",0) or after.get("StaleShares",0) or not after.get("AcceptedShares",0):raise ValueError("Real-pool share acceptance gate failed")
-    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
+    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"planned_seconds":planned,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
 def analyze(root,unit_receipt):
     units=load(unit_receipt)
     if units.get("status")!="passed" or units.get("native_KRig_TH_to_Tmac_factor")!=1:raise ValueError("Independent unit calibration is required")
