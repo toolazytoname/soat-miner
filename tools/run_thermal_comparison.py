@@ -24,14 +24,15 @@ def new_stop(output,initial_cancel):
  return (output/"stop.request").exists() or (f.exists() and f.stat().st_mtime_ns!=initial_cancel)
 
 def cooldown(output,gpu,initial_cancel):
- start=time.monotonic();rows=[]
+ start=time.monotonic();rows=[];busy=0
  while time.monotonic()-start<900:
   if new_stop(output,initial_cancel):raise RuntimeError("manual_stop")
   g=gpu.read();rows.append({"time":time.monotonic(),**g})
   if any(pid!=os.getpid() and name not in DESKTOP_PROCESSES for pid,name in gpu_processes().items()):raise RuntimeError("other_gpu_application_during_cooldown")
-  if g["MemoryMiB"]>2048 or g["Utilization"]>15:raise RuntimeError("gpu_busy_during_cooldown")
+  busy=busy+1 if g["MemoryMiB"]>2048 or g["Utilization"]>15 else 0
+  if busy>=3:raise RuntimeError("gpu_busy_during_cooldown")
   tail=[x for x in rows if rows[-1]["time"]-x["time"]<=60]
-  ready=g["Temperature"]<=50 and g["Hotspot"]<=65 and g["MemoryJunction"]<=65
+  ready=busy==0 and g["Temperature"]<=50 and g["Hotspot"]<=65 and g["MemoryJunction"]<=65
   stable=len(tail)>=10 and all(max(x[k] for x in tail)-min(x[k] for x in tail)<=2 for k in ["Temperature","MemoryJunction"])
   if time.monotonic()-start>=180 and ready and stable:return {"seconds":round(time.monotonic()-start),"end":g}
   time.sleep(5)
