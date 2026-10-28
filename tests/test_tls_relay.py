@@ -53,7 +53,7 @@ class RelayTests(unittest.TestCase):
         with socket.create_connection(('127.0.0.1',relay.local_port),timeout=5) as sock:
             sock.sendall(data)
             try:return sock.recv(65536)
-            except ConnectionResetError:return b''
+            except (ConnectionResetError,ConnectionAbortedError):return b''
     def test_valid_certificate_and_hostname_forward_bytes(self):
         receipt=self.root/'valid-relay.json'
         with TlsRelay('localhost',self.port,context=self.context(),receipt=receipt) as relay:
