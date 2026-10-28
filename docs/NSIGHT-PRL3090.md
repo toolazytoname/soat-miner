@@ -24,4 +24,4 @@ The CLI explicitly passes `--clock-control none`, `--cache-control none`, kernel
 
 Remove `--check-only` only when prior GPU work has ended and this explicit profile is intended. Use a fresh output directory. A successful run requires the report file and a clean, restored-power exit, and exports counter CSV for inspection. Counter permission or driver compatibility errors are recorded; the tool does not loosen driver security or change the driver to hide such errors.
 
-At this preparation checkpoint, the actual profiler has **not run**. A/B/A source comparison is still in progress. Actual hardware counter results and any resulting optimization require subsequent validation.
+The actual profiler has now completed the original, fixed, single-fold and three larger-block profiles, all with restored power. The later profiles also collect `MemoryWorkloadAnalysis_Tables`. Diagnostic results and their limitations are recorded in `PRL3090-RESULTS.md`; a replay duration is never treated as normal mining throughput.

@@ -57,11 +57,11 @@ Matched stable-temperature A/B/A and actual pool validation of the new specializ
 Evidence remains on Windows in `D:\AI\Playgrounds\soat-miner\20261028-prl3090`: `occupancy-correctness-result.json`, `occupancy-b3-correctness-result.json`, `fixed-correctness-result.json`, individual guard receipts, full transcript logs, and preserved build directories. CPU-only CTest runs must use `ctest --test-dir build/prl3090-fixed -LE gpu --output-on-failure`; a broad CTest invocation with GPU tests enabled also runs the small CUDA cases.
 
 
-## Compiled-only single-fold candidate (pending GPU gate)
+## Single-fold candidate (GPU gate passed; throughput still unproven)
 
 An additional opt-in specialization makes one algebraic simplification at fixed mining K/rank: 2048/128 produces exactly sixteen folds, and each of the first sixteen lanes writes its transcript slot once. Thus its old slot is zero, and `rotate_left(0,13) XOR v` equals `v`. Full-warp reduction remains outside the lane predicate. A compile-time branch chooses this path without materializing the generic branch; the generic default is preserved, and a static assertion requires the fixed-mining specialization.
 
-The 128x128 and 64x128/min-three-block variants compiled for SM86 in `build/prl3090-fold`. They have **not passed the GPU differential gate yet at this checkpoint**, and no correctness, speed or pool-acceptance claim is made for them. The ongoing A/B/A uses the earlier preserved baseline and fixed-K/rank binaries, not this new build.
+The 128x128 and 64x128/min-three-block variants compiled for SM86 in `build/prl3090-fold`. The subsequent explicit GPU suite passed all six full-buffer comparisons at 256x768, 1024x1024 and 4096x65536 with zero differing words. Speed and pool acceptance remain separate gates. The ongoing A/B/A uses the earlier preserved baseline and fixed-K/rank binaries, not this new build.
 
 `tools/run_correctness_suite.py` is the reusable gate for these candidates. It runs the resource helper and complete-buffer oracle comparisons at 256x768 (a short M swizzle group), 1024x1024, and 4096x65536, with each direct GPU child under the power/temperature/mutex guard. Three hardware-free fault tests confirm that a guard failure, missing power restore, or zero exit without a full-buffer result aborts the suite. The suite is not an extra automatic GPU workload; run it only after the current comparison has ended.
 
@@ -70,4 +70,38 @@ The 128x128 and 64x128/min-three-block variants compiled for SM86 in `build/prl3
 
 Official CUDA 13.1.115 `cuobjdump` and `nvdisasm` were obtained from the same SHA-256-pinned NVIDIA manifest into `D:\Apps\CUDAInspectors\13.1.1`, without changing the installed compiler, driver or global PATH. `tools/setup_cuda_inspectors.py` and `tools/inspect_singlefold_sass.py` reproduce installation and static inspection. These tools inspect binary files and do not run a GPU workload.
 
-Within the same `prl3090-fold` binary, the fixed generic 128x128 kernel has 1,052 static SASS instructions; the single-fold version has 1,028. The latter has 16 fewer SHF and 16 fewer LOP3 instructions, but 16 more SEL instructions and several fewer uniform operations. Both use 124 registers and report zero stack/local bytes. This establishes a compiled-code change, not a dynamic instruction saving, correctness proof or speedup. Full-buffer GPU validation and instrumented counter analysis remain pending for the single-fold candidate.
+Within the same `prl3090-fold` binary, the fixed generic 128x128 kernel has 1,052 static SASS instructions; the single-fold version has 1,028. The latter has 16 fewer SHF and 16 fewer LOP3 instructions, but 16 more SEL instructions and several fewer uniform operations. Both use 124 registers and report zero stack/local bytes. This establishes a compiled-code change, not a dynamic instruction saving, correctness proof or speedup. The later six-case GPU validation passed; actual counters were also collected. A matched end-to-end speedup and pool acceptance remain separate questions.
+
+
+## First stable A/B/A: no demonstrated improvement
+
+At 220 W, with at least three minutes of cooldown before each case and 720 seconds per case, the final 180-second windows were:
+
+| Case | Configuration | Mean synthetic T MAC/s | Temperature window steady | Original cap restored |
+| --- | --- | ---: | --- | --- |
+| A1 | Original K32, 256x128, 3 stages | 48.0367 | Yes | Yes |
+| B | Fixed K/rank, K64, 128x128, 2 stages | 47.8331 | Yes | Yes |
+| A2 | Original K32, 256x128, 3 stages | 47.4953 | Yes | Yes |
+
+B was +0.1404% relative to the mean of the bracketing A cases; A1/A2 differed by 1.1334%. This does **not demonstrate a speed gain**. The controlled comparison completed, all three thermal windows passed the stated drift gate, and every case restored 370 W. These are synthetic attempt rates, not pool-credited earnings.
+
+## Measured hardware counters and larger-block experiments
+
+Nsight Compute actually profiled the original, fixed small-block, single-fold small-block and three larger-block candidates. Each profile used the owned job guard, explicit `--clock-control none`, no pool, and restored the original cap. The reports used kernel replay with uncontrolled caches/clocks, so replay duration is not normal mining throughput. The following are diagnostic samples, not a matched speed comparison:
+
+| Kernel | L2 throughput % | Tensor-pipe active % | Long-scoreboard ratio | Math-pipe-throttle ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Original K32 256x128 S3 | 58.26 | 57.86 | 0.0032 | 3.6595 |
+| Fixed K64 128x128 S2 | 87.75 | 69.73 | 2.1900 | 2.3535 |
+| Single-fold K64 128x128 S2 | 87.96 | 68.03 | 2.2638 | 2.3887 |
+| Fixed K64 256x128 S2 | 53.86 | 54.25 | 2.6704 | 5.3584 |
+| Single-fold K64 256x128 S2 | 53.62 | 53.55 | 2.5450 | 5.4679 |
+| Single-fold K64 256x128 S3 | 65.94 | 65.22 | 0.0980 | 5.4983 |
+
+The ratio columns are the exact `smsp__average_warps_issue_stalled_*_per_issue_active.ratio` metrics, not percentages. Higher L2 utilization alone does not establish a bottleneck; the substantially higher long-scoreboard value in the small two-CTA case is an additional indication of memory dependency waits. The larger three-stage case retains B reuse and hides much of that wait, so it is selected for the next proper thermal A/B/A rather than declaring its replay time a win.
+
+All three larger 256x128 variants passed nine complete-buffer oracle comparisons (three shapes each), zero differing words. They use 512 threads, 120 registers/thread and zero local/stack bytes; S2 uses 61,440 B dynamic shared memory and S3 uses 92,160 B. Each has one theoretical resident block per SM, 33.33% theoretical occupancy. Their added memory-table profiles reported zero shared bank conflicts, including the LDGSTS counter; no bank-conflict speedup is claimed or implemented from speculation.
+
+Evidence includes `thermal-aba-summary.json`, `singlefold-correctness-active.json`, `large-correctness-active.json`, `ncu-original-active.json`, `ncu-fixed-active.json`, `ncu-singlefold-active.json`, and `ncu-large-active.json` under the Windows run root. Follow each active JSON's output path to immutable receipts, raw CSV, profiler reports and complete verifier output.
+
+`test-pearl-gpu-context` is a separate explicit live-yield test target, not a CTest registration. It performs one 8 MiB memset and idles for 5..30 seconds, allowing the manager's incoming-GPU policy to be tested without a second heavy compute workload.

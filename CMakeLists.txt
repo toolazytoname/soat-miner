@@ -215,6 +215,8 @@ if(SOAT_ENABLE_PEARL_GPU_TESTS)
   add_executable(test-pearl-mining-shape tests/test_pearl_mining_shape.cu)
   target_include_directories(test-pearl-mining-shape PRIVATE src)
   target_compile_options(test-pearl-mining-shape PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3>)
+  # Deliberately not registered in CTest: explicit tiny-context live-yield test only.
+  add_executable(test-pearl-gpu-context tests/test_pearl_gpu_context.cu)
   add_executable(test-pearl-kernel-resources tests/test_pearl_kernel_resources.cu)
   target_include_directories(test-pearl-kernel-resources PRIVATE src)
   target_compile_options(test-pearl-kernel-resources PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3>)

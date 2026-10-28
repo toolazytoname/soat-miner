@@ -253,6 +253,11 @@ const TileConfig kTileConfigs[] = {
     {"ampere s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8>},
     {"ampere fixed s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8, 1, true>},
     {"ampere fixed singlefold s2 g8 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 8, 1, true, true>},
+    // RTX 3090 counters: the smaller two-CTA tile increases long-scoreboard
+    // waits and L2 traffic. Reuse B within one larger block instead.
+    {"ampere large s2 k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, false>},
+    {"ampere large s2 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, true>},
+    {"ampere large s3 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 3, 8, 1, true, true>},
     {"ampere fixed singlefold m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true, true>},
     {"ampere fixed m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true>},
     {"ampere s2 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 4>},

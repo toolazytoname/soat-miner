@@ -1,13 +1,13 @@
 """Reproducible transcript gate: direct GPU verifier children, each guarded."""
 import argparse,datetime,hashlib,json,os,pathlib,subprocess,sys,threading,time,traceback
 ROOT=pathlib.Path(__file__).resolve().parent.parent
-VARIANTS=["sm86-singlefold-s2-g8-k64","sm86-singlefold-m64n128-b3-k64","sm86-fixed-s2-g8-k64","sm86-fixed-m64n128-b3-k64","ampere-s2-g8","ampere-s2-g4","ampere-s3-g4"]
+VARIANTS=["sm86-large-s2-k64","sm86-large-s2-fold-k64","sm86-large-s3-fold-k64","sm86-singlefold-s2-g8-k64","sm86-singlefold-m64n128-b3-k64","sm86-fixed-s2-g8-k64","sm86-fixed-m64n128-b3-k64","ampere-s2-g8","ampere-s2-g4","ampere-s3-g4"]
 CANCEL=pathlib.Path("D:/Apps/KRig/Runtime/cancel.request")
 def save(path,obj):
  t=path.with_suffix(".tmp");t.write_text(json.dumps(obj,indent=2),encoding="utf-8");t.replace(path)
 def cancelled(out,initial):return (out/"stop.request").exists() or (CANCEL.exists() and CANCEL.stat().st_mtime_ns!=initial)
 def main():
- ap=argparse.ArgumentParser();ap.add_argument("--output",type=pathlib.Path,required=True);ap.add_argument("--build",choices=["prl3090-fold","prl3090-fixed","prl3090-occupancy"],default="prl3090-fold");ap.add_argument("--variants",nargs="+",choices=VARIANTS,default=VARIANTS[:2]);ap.add_argument("--check-only",action="store_true");a=ap.parse_args();build=ROOT/"build"/a.build
+ ap=argparse.ArgumentParser();ap.add_argument("--output",type=pathlib.Path,required=True);ap.add_argument("--build",choices=["prl3090-fold","prl3090-fixed","prl3090-occupancy","prl3090-large"],default="prl3090-fold");ap.add_argument("--variants",nargs="+",choices=VARIANTS,default=["sm86-singlefold-s2-g8-k64","sm86-singlefold-m64n128-b3-k64"]);ap.add_argument("--check-only",action="store_true");a=ap.parse_args();build=ROOT/"build"/a.build
  for exe in ["test-pearl-kernel-resources.exe","test-pearl-mining-shape.exe"]:
   if not (build/exe).is_file():raise ValueError("Missing GPU test target: "+exe)
  cases=[("resources","test-pearl-kernel-resources.exe",[])]
