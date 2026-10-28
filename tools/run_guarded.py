@@ -7,6 +7,7 @@ import argparse
 import ctypes
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -24,8 +25,11 @@ def write_json(path, value):
 
 def thermal_reason(d):
     for field, limit in [('Temperature', 80), ('Hotspot', 100), ('MemoryJunction', 96)]:
-        if d[field] >= limit:
-            return f'thermal_{field}_{d[field]}'
+        value=d.get(field)
+        if not isinstance(value,(int,float)) or not math.isfinite(value):
+            return f'invalid_temperature_{field}'
+        if value >= limit:
+            return f'thermal_{field}_{value}'
     return None
 
 
@@ -122,6 +126,13 @@ class MiningLease:
         self.kernel.CloseHandle(self.handle)
 
 
+
+def manual_cancel_token():
+    path=Path('D:/Apps/KRig/Runtime/cancel.request')
+    try:
+        stat=path.stat();return (stat.st_mtime_ns,stat.st_size)
+    except FileNotFoundError:return None
+
 def run(args):
     if os.name != 'nt':
         raise RuntimeError('This guard is for the single-GPU Windows workstation')
@@ -134,6 +145,9 @@ def run(args):
 def _run_owned(args):
     if os.name != 'nt':
         raise RuntimeError('This guard is for the single-GPU Windows workstation')
+    initial_cancel = args.initial_manual_cancel if hasattr(args,'initial_manual_cancel') else manual_cancel_token()
+    if manual_cancel_token()!=initial_cancel:
+        raise RuntimeError('Manual stop requested before launch; no GPU or power change made')
     command = args.command[1:] if args.command[:1] == ['--'] else args.command
     if not command:
         raise ValueError('A child command is required after --')
@@ -150,8 +164,9 @@ def _run_owned(args):
     before = gpu.read()
     if before['Utilization'] > 10 or before['MemoryMiB'] > 2048:
         raise RuntimeError('GPU is busy; no process or power change made')
-    if thermal_reason(before):
-        raise RuntimeError('GPU is above a thermal limit; no process started')
+    unsafe=thermal_reason(before)
+    if unsafe:
+        raise RuntimeError('Unsafe GPU temperature: '+unsafe+'; no process started')
     initial_gpu_processes = gpu_processes()
     other_initial = {pid: name for pid, name in initial_gpu_processes.items()
                      if pid != os.getpid() and name not in DESKTOP_PROCESSES}
@@ -187,7 +202,7 @@ def _run_owned(args):
             deadline = time.monotonic() + args.seconds
             errors = 0
             while process.poll() is None and time.monotonic() < deadline:
-                if stop_requested or (out/'stop.request').exists():
+                if stop_requested or (out/'stop.request').exists() or manual_cancel_token()!=initial_cancel:
                     reason = 'manual-stop'; break
                 try:
                     reading = gpu.read()
@@ -219,22 +234,33 @@ def _run_owned(args):
         state['error'] = type(exc).__name__+': '+str(exc)
         raise
     finally:
+        stop_error = None
         try:
             if process is not None and process.poll() is None:
                 state['child_stop'] = stop_owned(process)
-        finally:
-            try:
-                current_power = gpu.read()['PowerLimit']
-                if abs(current_power-args.power) <= 1:
-                    gpu.power(original_power)
-                elif abs(current_power-original_power) > 1:
-                    state['external_power_preserved'] = current_power
-                state['power_restored'] = abs(gpu.read()['PowerLimit']-original_power) <= 1
-            except Exception as exc:
-                state['recovery_error'] = str(exc)
-            state.update(status='stopped', stop_reason=reason,
+        except BaseException as exc:
+            stop_error = exc
+            state['child_stop_error'] = type(exc).__name__+': '+str(exc)
+        still_alive = process is not None and process.poll() is None
+        if still_alive:
+            # A larger cap is unsafe while owned work has not actually stopped.
+            state.update(status='stop-failed', stop_reason='owned-child-stop-failed',
+                         owned_child_alive=True, power_restored=False,
                          ended_at=datetime.now(timezone.utc).isoformat())
             write_json(state_path, state)
+            raise RuntimeError('Owned child is still alive; retaining reduced power limit') from stop_error
+        try:
+            current_power = gpu.read()['PowerLimit']
+            if abs(current_power-args.power) <= 1:
+                gpu.power(original_power)
+            elif abs(current_power-original_power) > 1:
+                state['external_power_preserved'] = current_power
+            state['power_restored'] = abs(gpu.read()['PowerLimit']-original_power) <= 1
+        except Exception as exc:
+            state['recovery_error'] = str(exc)
+        state.update(status='stopped', stop_reason=reason,
+                     ended_at=datetime.now(timezone.utc).isoformat())
+        write_json(state_path, state)
     if not state['power_restored']:
         raise RuntimeError('Original GPU power limit was not restored; inspect guard status')
     return 0 if reason in ['duration-complete', 'manual-stop'] or (reason=='child-exited' and state.get('child_exit_code')==0) else 1

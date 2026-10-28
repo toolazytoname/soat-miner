@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
-from run_guarded import run, write_json
+from run_guarded import run, write_json, manual_cancel_token
 from tls_relay import TlsRelay
 from payout_policy import fetch, remaining_seconds
 
@@ -19,6 +19,7 @@ def main():
     parser.add_argument('--seconds', type=int, default=600)
     parser.add_argument('--deadline-state', help='Existing experience JSON; keeps its original MiningDeadline')
     opts=parser.parse_args()
+    initial_cancel=manual_cancel_token()
     if not 30<=opts.seconds<=900:
         parser.error('Pool probes must be 30..900 seconds')
     cfg=json.loads(Path(opts.config).read_text(encoding='utf-8-sig'))
@@ -55,7 +56,7 @@ def main():
             command=[str(Path(opts.binary).resolve()),'--algo','pearl-pow','--device','0',
                      '--pool',f'127.0.0.1:{relay.local_port}','--wallet',cfg['wallet'],
                      '--worker',cfg.get('worker','source-probe'),'--plain','--interval','5']
-            code=run(SimpleNamespace(command=command, output=str(out),seconds=opts.seconds,power=220))
+            code=run(SimpleNamespace(command=command, output=str(out),seconds=opts.seconds,power=220,initial_manual_cancel=initial_cancel))
         accepted=rejected=0
         for line in (out/'child.log').read_text(encoding='utf-8',errors='replace').splitlines():
             try: row=json.loads(line)

@@ -108,3 +108,26 @@ Evidence includes `thermal-aba-summary.json`, `singlefold-correctness-active.jso
 
 
 The official [Pearl miner README](https://github.com/pearl-research-labs/pearl/blob/master/miner/README.md) was reviewed as another open reference: its supported GPU tests currently target SM90 (H100/H200), so it is not a drop-in SM86 backend for this 3090. No vLLM stack, node, wallet or 70B model was installed for that investigation. SOAT's rate formula is directly inspectable in `src/core/telemetry.h` and `PearlPow::macsPerUnit`; [KRig v1.5.12 documentation](https://github.com/kryptex/krig-miner/blob/v1.5.12/README.md) labels Pearl examples TH/s without an internal formula. Device-reported rates, profiler kernel latency and pool-credited work remain distinct evidence.
+
+
+## Larger three-stage candidate: controlled improvement and real pool gate
+
+The completed second 220 W A/B/A used the same preserved original binary for both controls, at least three minutes of cooldown before each case, 720 seconds per case and the final 180-second windows:
+
+| Case | Kernel | Mean synthetic T MAC/s | Mean GPU W | Steady / cap restored |
+| --- | --- | ---: | ---: | --- |
+| A1 | Original K32, 256x128 S3 | 46.6475 | 219.765 | Yes / yes |
+| B | Fixed K/rank + single-fold, K64, 256x128 S3 | 51.3258 | 219.769 | Yes / yes |
+| A2 | Original K32, 256x128 S3 | 46.9197 | 219.746 | Yes / yes |
+
+The candidate was **+9.7090%** relative to the mean of the bracketing controls; A1/A2 drift was **0.5819%**. All three thermal windows met the stated gate and restored 370 W. This is an improvement measured in this complete synthetic attempt loop on this machine. It compares the complete candidate package, so it does not isolate a single-fold, K64, register or pipeline effect. It is not a cross-backend speed percentage, pool-credit percentage or daily-profit result.
+
+The identical candidate executable (SHA-256 `5157eeda4d5583c4453b30c39a00ca00cdb3d2b0038544bfd9232c7fde67b947`) then ran a 600-second live probe with the exact `=ampere large s3 fold k64` pin and 4096x65536 shape. It recorded **3 accepted shares, 0 rejected**, with certificate and hostname verification required by our relay. The guard stopped normally and restored the original cap. This proves short compatibility of this new specialization, rather than borrowing the earlier generic-kernel probe as evidence.
+
+Authoritative Windows receipts: `large-thermal-aba-summary.json`, the immutable case directories linked by `large-thermal-aba-active.json`, and `optimized-pool-probe-summary.json` / `optimized-pool-probe-active.json` under the existing run root. The 16 current experiment-guard cases pass in normal and optimized Python (15 hardware-free cases plus the real cross-process named-mutex case, run separately after the comparison ended).
+
+## KRig certificate-policy diagnostic
+
+A bounded local diagnostic of the pinned KRig 1.5.12 binary completed TLS with an untrusted self-signed localhost certificate and sent 166 application bytes. No jobs were provided, no trust roots were changed, and the temporary test key was deleted. This probes certificate-chain rejection only; it does not independently test hostname policy. The vendor logged a certificate fingerprint, which is not proof that an untrusted chain was rejected.
+
+`tools/probe_krig_certificate_policy.py` reproduces the explicit guarded diagnostic and returns a nonzero policy result when an untrusted certificate is accepted. The own supervisor in the separate RainbowMiner repository now supplies the mandatory verified-TLS relay for its normal route. Raw `stratum+ssl` URL validation alone is not represented as certificate-policy verification. No Defender setting was changed.

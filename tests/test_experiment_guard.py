@@ -129,6 +129,48 @@ class GuardTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'100..220'):
                 guard.run(self.args)
             gpu.assert_not_called()
+    def test_unstoppable_owned_child_keeps_reduced_cap_and_receipt(self):
+        gpu=FakeGpu();child=FakeChild()
+        def launch(*args,**kwargs):
+            (Path(self.args.output)/'stop.request').touch();return child
+        with patch.object(guard,'MiningLease',return_value=contextlib.nullcontext()),patch.object(guard,'Gpu',return_value=gpu),patch.object(guard.subprocess,'Popen',side_effect=launch),patch.object(guard,'gpu_processes',return_value={}),patch.object(guard,'stop_owned',side_effect=guard.subprocess.TimeoutExpired('owned-child',15)):
+            with self.assertRaisesRegex(RuntimeError,'retaining reduced power'):
+                guard.run(self.args)
+        self.assertEqual(gpu.calls,[220]);self.assertEqual(gpu.limit,220)
+        state=self.status();self.assertEqual(state['status'],'stop-failed')
+        self.assertTrue(state['owned_child_alive']);self.assertFalse(state['power_restored'])
+        self.assertEqual(state['child_pid'],child.pid)
+    def test_nan_temperature_never_starts_gpu(self):
+        class InvalidGpu(FakeGpu):
+            def read(self):
+                row=super().read();row['Temperature']=float('nan');return row
+        gpu=InvalidGpu()
+        with self.assertRaisesRegex(RuntimeError,'invalid_temperature_Temperature'):
+            self.run_case(gpu)
+        self.assertEqual(gpu.calls,[])
+    def test_nan_temperature_stops_owned_work(self):
+        class InvalidGpu(FakeGpu):
+            def read(self):
+                row=super().read()
+                if self.reads==2:row['Temperature']=float('nan')
+                return row
+        gpu=InvalidGpu();code,_=self.run_case(gpu)
+        self.assertEqual(code,1);self.assertTrue(self.status()['power_restored'])
+        self.assertEqual(self.status()['stop_reason'],'invalid_temperature_Temperature')
+
+    def test_shared_manual_stop_is_honored_by_experiments(self):
+        gpu=FakeGpu()
+        with patch.object(guard,'manual_cancel_token',side_effect=[(1,0),(1,0),(2,0)]):
+            code,_=self.run_case(gpu)
+        self.assertEqual(code,0);self.assertEqual(self.status()['stop_reason'],'manual-stop')
+        self.assertTrue(self.status()['power_restored'])
+    def test_manual_stop_during_parent_preflight_prevents_launch(self):
+        self.args.initial_manual_cancel=(1,0)
+        with patch.object(guard,'manual_cancel_token',return_value=(2,0)),patch.object(guard,'Gpu') as gpu,patch.object(guard,'MiningLease',return_value=contextlib.nullcontext()):
+            with self.assertRaisesRegex(RuntimeError,'before launch'):
+                guard.run(self.args)
+        gpu.assert_not_called()
+
     def test_lease_blocks_second_process(self):
         with guard.MiningLease():
             code='import sys;sys.path.insert(0,sys.argv[1]);from run_guarded import MiningLease\nwith MiningLease(): pass'
