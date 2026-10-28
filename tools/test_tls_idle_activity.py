@@ -19,6 +19,8 @@ class Handler(socketserver.BaseRequestHandler):
                     for _ in range(12):
                         if stream.recv(1)!=b"H":return
                     stream.sendall(b"K")
+                elif self.server.mode=="delayed-response":
+                    time.sleep(.7);stream.sendall(b"K")
                 else:time.sleep(.7)
         except (OSError,ssl.SSLError):pass
 class SharedIdleTests(unittest.TestCase):
@@ -53,6 +55,20 @@ class SharedIdleTests(unittest.TestCase):
                 client.settimeout(5);client.sendall(b"A");self.assertTrue(server.activity_started.wait(5))
                 for _ in range(12):client.sendall(b"H");time.sleep(.05)
                 self.assertEqual(client.recv(1),b"K")
+    def test_legitimate_quiet_job_stays_connected_with_tcp_keepalive(self):
+        server,context=self.server("delayed-response")
+        with TlsRelay("localhost",server.server_address[1],context=context,idle_seconds=None,receipt=self.root/"quiet-job.json") as relay:
+            with socket.create_connection(("127.0.0.1",relay.local_port),timeout=2) as client:
+                client.settimeout(5);client.sendall(b"A");self.assertTrue(server.activity_started.wait(5))
+                self.assertEqual(client.recv(1),b"K")
+                self.assertTrue(relay.state["tcp_keepalive"]["enabled"])
+                self.assertIsNone(relay.state["application_idle_seconds"])
+    def test_invalid_application_idle_deadlines_are_rejected(self):
+        for value in (0,-1,float("nan"),float("inf")):
+            with self.subTest(value=value),self.assertRaises(ValueError):TlsRelay("localhost",8048,idle_seconds=value)
+    def test_default_does_not_require_finding_a_share_before_idle_deadline(self):
+        relay=TlsRelay("localhost",8048)
+        self.assertIsNone(relay.idle_seconds)
     def test_both_directions_silent_still_time_out(self):
         server,context=self.server("silent")
         with TlsRelay("localhost",server.server_address[1],context=context,idle_seconds=.2,receipt=self.root/(server.mode+"-receipt.json")) as relay:

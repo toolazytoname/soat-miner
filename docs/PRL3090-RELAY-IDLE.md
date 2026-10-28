@@ -1,31 +1,35 @@
-# Duplex idle deadline and the PRL3090 comparison
+# Transport liveness for quiet PRL mining jobs
 
-The relay now measures inactivity across the connection as a whole. Traffic in either direction moves the shared idle deadline. Certificate-chain verification, hostname verification, TLS 1.2 minimum, loopback-only listening and the absence of a plaintext upstream fallback are unchanged. No application payload logging was added.
+Production uses TCP keepalive without an application-traffic idle cutoff. A valid job can remain quiet for more than five minutes while the GPU continues computing. Absence of a new notification or winning share is not proof that the TCP connection is dead.
 
-The old relay applied a separate 300-second read timeout to each direction. That can disconnect a healthy incoming stream when the miner has not submitted a share, or a healthy outgoing stream when the server has not sent data recently.
+On this Windows host the upstream socket reads back SO_KEEPALIVE enabled, a 60-second idle setting, 10-second probe interval and five probes. These are per-socket options, not global network settings. The settings and a healthy quiet connection were tested; a blackholed-network timing experiment was not performed.
 
-## Evidence
+An explicit optional application idle limit remains available. When enabled, traffic in either direction moves its shared deadline. Production explicitly chooses None. TLS handshake limits, certificate-chain and hostname verification, TLS 1.2 minimum, loopback-only listening and the lack of a plaintext upstream fallback remain in place. The original mining deadline, payout threshold, thermal protections, manual stop and GPU coexistence guard are separate and unchanged.
 
-A local TLS fixture with a trusted temporary localhost certificate sends one-way heartbeats for longer than the idle period. The original relay fails the incoming-traffic case while the fixed relay passes incoming-only traffic, outgoing-only traffic and a genuinely silent-connection timeout. The deployed manager copy also passes all six existing certificate/hostname/endpoint tests.
+## Validation
 
-The complete manager CPU suite passes 59 cases in normal Python and 59 under -O. Three additional duplex-idle cases pass in each mode against the deployed copy. No GPU workload, permanent trust-store change, wallet signing or real-pool submission occurs in these tests.
+The old per-direction idle timer fails a local TLS heartbeat fixture. The intermediate shared timer fixed one-direction activity but retained a five-minute application cutoff. A second real-pool KRig case then recorded one connection_idle_timeouts event during valid mining work.
 
-Field timing is consistent with the bug: the first A1 share was reported at 127.419 seconds and an idle interruption appeared around 428.2 seconds, followed by another approximately 302 seconds later. This is an inference, not proof that every observed disconnection has this cause. KRig also reconnected without a relay exception, so other miner/pool reconnect behavior remains possible.
+The current fixture checks incoming-only activity, outgoing-only activity, an explicitly requested idle timeout, a legitimate quiet job with TCP keepalive, the no-cutoff production default and invalid idle-limit values. All six pass in normal Python and under -O. The manager passes 60 CPU cases in each mode, including strict certificate/hostname/endpoint checks and the production factory policy. The deployed relay passes the six additional transport cases in each mode: 66 checks per mode in total.
 
-## First comparison round retained, not promoted
+The local certificates are temporary test material. No permanent trust-store changes, driver changes, GPU work, wallet signing or real-pool submissions occur in these CPU tests. No application payload logging was added.
 
-The original fixed analysis window is the final 180 seconds of the planned 720-second case, measured from the recorded session start. Extra observations and operator stop latency remain in the raw data and do not move that window.
+## Retained comparison rounds
 
-| First round | Result |
+| Round | Retained finding |
 | --- | --- |
-| Source A1 | 51.3665 T MAC/s, 219.7968 W average GPU power; stable; 1 accepted, 0 rejected |
-| KRig B | 15.28 seconds of zero reported rate in the final window; core range 12 C, hotspot range 17.75 C; 3 accepted, 0 rejected |
-| Source A2 | Not run after B failed the stability gate |
+| Original per-direction timer | A1: 51.3665 T MAC/s, 219.7968 W, stable; B failed thermal stability after an interruption; no A2 |
+| Shared application timer | A1: 51.5685 T MAC/s, 219.7815 W, stable; B recorded one idle cutoff, 15.30 seconds of zero rate in its final window and a 12 C core range; no A2 |
+| TCP keepalive, no application cutoff | New complete source/KRig/source round; no winning percentage before all cases pass |
 
-B does not pass the predeclared thermal gate. This round is invalid for announcing a performance percentage. The accepted shares demonstrate connectivity; the small counts do not establish an income comparison.
+The first A1 share timing (127.419 seconds) and interruption around 428.2 seconds were consistent with the old 300-second direction timer. That correlation was an inference. The later retained idle-timeout counter is direct evidence of a local cutoff; other miner/pool reconnect causes are still possible.
 
-The fix is vendored into the manager before a new complete source/KRig/source round. Both miners retain their pinned binaries, the original pool, wallet, PPS+ mode, absolute mining deadline and 220 W cap. KRig's localhost fee is explicitly acknowledged in RAM only by the one-case entry. The normal production configuration remains SOAT with that fee disabled.
+Every new case uses the first selected-profile GPU telemetry timestamp as its measurement origin, excluding intentional cooldown. The fixed measurement is +540 through +720 seconds. Extra observations and operator stop latency are retained and do not move the measurement window. Legacy rounds keep their recorded analysis rules.
 
-Evidence remains on Windows under D:/AI/Playgrounds/soat-miner/20261028-prl3090/closed-source-comparison. The original matched-performance directory and all failed receipts are retained. The fresh round is separate; the first result is not overwritten or relabeled as a pass.
+A case interrupted inside its fixed window is not promoted as a controlled performance win. Miner-reported accepted shares demonstrate connectivity, and the small sample is not an income comparison. Both pinned compute binaries, the original pool, public wallet, PPS+ mode and 220 W cap are preserved. KRig's localhost developer fee is explicitly acknowledged in RAM for its case; the default configuration remains SOAT with that fee disabled.
 
-This is a host-transport correction. It does not change CUDA proof computation, and it does not increase the separately measured 9.709% kernel gain over original SOAT.
+Evidence stays under D:/AI/Playgrounds/soat-miner/20261028-prl3090/closed-source-comparison on Windows. Failed rounds and receipts remain separate from the new round.
+
+These are host-transport and measurement corrections. They do not change the CUDA proof computation or increase the separately established 9.709% kernel gain over original SOAT.
+
+Reference: [Python 3.12 socket options and Windows support](https://docs.python.org/3.12/library/socket.html).

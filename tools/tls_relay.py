@@ -3,19 +3,21 @@
 No application payloads, wallets or proofs are logged. Certificate verification
 and hostname checking are mandatory. The default trust roots are the Windows
 Python/OpenSSL system roots; no insecure or plaintext upstream fallback exists.
-The idle deadline measures inactivity across both directions of a connection;
-an active upstream need not wait for a client share to keep the stream open.
+TCP keepalive checks peer liveness without requiring a new job or share.
+An optional application idle deadline measures inactivity across both directions.
 """
 import asyncio
 from datetime import datetime, timezone
 import json
+import math
+import socket
 from pathlib import Path
 import ssl
 import threading
 
 
 class TlsRelay:
-    def __init__(self, host, port, *, receipt=None, context=None, idle_seconds=300):
+    def __init__(self, host, port, *, receipt=None, context=None, idle_seconds=None):
         if not host or '/' in host or ':' in host or not 1 <= int(port) <= 65535:
             raise ValueError('Expected a DNS hostname and a valid TLS port')
         self.host, self.port = host, int(port)
@@ -24,7 +26,9 @@ class TlsRelay:
             raise ValueError('TLS certificate and hostname verification are mandatory')
         self.context.minimum_version = max(self.context.minimum_version, ssl.TLSVersion.TLSv1_2)
         self.receipt = Path(receipt) if receipt else None
-        self.idle_seconds = idle_seconds
+        self.idle_seconds = None if idle_seconds is None else float(idle_seconds)
+        if self.idle_seconds is not None and (not math.isfinite(self.idle_seconds) or self.idle_seconds <= 0):
+            raise ValueError('Application idle limit must be positive and finite, or None')
         self.ready = threading.Event()
         self.thread = None
         self.loop = None
@@ -34,7 +38,8 @@ class TlsRelay:
                           certificate_required=True, hostname_check_required=True,
                           sessions=0, active_sessions=0, verified_sessions=0,
                           failed_sessions=0, client_bytes=0, upstream_bytes=0,
-                          connection_idle_timeouts=0)
+                          connection_idle_timeouts=0, application_idle_seconds=self.idle_seconds,
+                          tcp_keepalive=None)
 
     def _save(self):
         if self.receipt:
@@ -58,6 +63,20 @@ class TlsRelay:
                 self.host, self.port, ssl=self.context, server_hostname=self.host,
                 ssl_handshake_timeout=12), timeout=18)
             secure = upstream.get_extra_info('ssl_object')
+            peer = upstream.get_extra_info('socket')
+            if peer is None:
+                raise RuntimeError('Missing upstream TCP socket for keepalive')
+            peer.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            keepalive = dict(enabled=bool(peer.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE)))
+            idle_option = getattr(socket, 'TCP_KEEPIDLE', getattr(socket, 'TCP_KEEPALIVE', None))
+            options = [(idle_option, 60, 'idle_seconds'),
+                       (getattr(socket, 'TCP_KEEPINTVL', None), 10, 'interval_seconds'),
+                       (getattr(socket, 'TCP_KEEPCNT', None), 5, 'probe_count')]
+            for option, value, name in options:
+                if option is not None:
+                    peer.setsockopt(socket.IPPROTO_TCP, option, value)
+                    keepalive[name] = peer.getsockopt(socket.IPPROTO_TCP, option)
+            self.state['tcp_keepalive'] = keepalive
             self.state.update(verified_sessions=self.state['verified_sessions']+1,
                               tls_version=secure.version(), cipher=secure.cipher()[0])
             self._save()
@@ -65,17 +84,22 @@ class TlsRelay:
             activity = dict(last=clock.time(), expired=False)
             async def copy(source, destination, field):
                 while True:
-                    remaining = self.idle_seconds - (clock.time() - activity['last'])
-                    if remaining <= 0:
-                        if not activity['expired']:
-                            self.state['connection_idle_timeouts'] += 1
-                            activity['expired'] = True
-                        raise TimeoutError('No traffic in either direction before the connection idle limit')
-                    try:
-                        data = await asyncio.wait_for(source.read(65536), remaining)
-                    except asyncio.TimeoutError:
-                        # The other direction may have moved this shared deadline.
-                        continue
+                    if self.idle_seconds is None:
+                        # A valid mining job can be quiet for more than five minutes.
+                        # TCP keepalive detects a dead peer without requiring new work/shares.
+                        data = await source.read(65536)
+                    else:
+                        remaining = self.idle_seconds - (clock.time() - activity['last'])
+                        if remaining <= 0:
+                            if not activity['expired']:
+                                self.state['connection_idle_timeouts'] += 1
+                                activity['expired'] = True
+                            raise TimeoutError('No traffic in either direction before the connection idle limit')
+                        try:
+                            data = await asyncio.wait_for(source.read(65536), remaining)
+                        except asyncio.TimeoutError:
+                            # The other direction may have moved this shared deadline.
+                            continue
                     if not data:
                         return
                     activity['last'] = clock.time()
