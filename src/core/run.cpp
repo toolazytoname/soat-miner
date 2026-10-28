@@ -546,6 +546,38 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
     auto tEpoch = tStart;
     std::string prefetchNote;
 
+    // Failed fetches must still emit health statistics. A warning is not a
+    // new rate sample, and continuing to show the previous positive rate while
+    // the GPU is idle hides a pool-side wait from both users and supervisors.
+    // Before the first prepared job the algorithm has not established its MAC
+    // unit yet; retain the existing bounded initial-statistics behaviour.
+    const auto reportReadout = [&](bool waitingForJob) {
+        if (waitingForJob && !prepared.valid) return;
+        const auto now = std::chrono::steady_clock::now();
+        const double el = std::chrono::duration<double>(now - tReport).count();
+        if (el < (double)opt.reportSeconds) return;
+        if (waitingForJob && source) {
+            uint64_t a = 0, r = 0, p = 0;
+            std::string le;
+            if (source->poolCounters(&a, &r, &p, &le)) {
+                stats.accepted = a;
+                stats.rejected = hostRejected + r;
+            }
+        }
+        stats.uptimeSeconds = std::chrono::duration<double>(now - tStart).count();
+        stats.hashrate = waitingForJob ? 0.0 : intervalHashes / el / 1e6;
+        stats.hashrateAvg = stats.uptimeSeconds > 0
+            ? stats.totalNonces / stats.uptimeSeconds / 1e6 : 0.0;
+        stats.epoch = job.epoch;
+        stats.pushSample(stats.hashrate);
+        const GpuTelemetry sample = gpu.sample();
+        if (sample.valid)
+            stats.addPowerSample(sample.powerMilliwatts / 1000.0, el);
+        printReadout(stats, sample, tty);
+        intervalHashes = 0;
+        tReport = now;
+    };
+
     while (!*stop) {
         if (opt.bench && opt.benchEpochSeconds > 0) {
             const auto now = std::chrono::steady_clock::now();
@@ -571,6 +603,7 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
                                   "(starts with 9, ~51 chars).");
                     return 1;
                 }
+                reportReadout(true);
                 // A zero-target notify mid-session (a Lithos client that lost
                 // its tau) clears the job, so fetch() returns false here. Surface
                 // that specific reason rather than a generic "cannot reach": the
@@ -605,7 +638,7 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
                 if (!newEpoch) stats.jobs++;
             }
         }
-        if (!job.valid) { sleepSeconds(1); continue; }
+        if (!job.valid) { reportReadout(true); sleepSeconds(1); continue; }
 
         // Autolykos keeps the epoch-only gate: re-preparing there rebuilds a
         // 7.27 GB dataset, and its epoch really does track the work. Pearl
@@ -783,26 +816,7 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
             }
         }
 
-        const auto now = std::chrono::steady_clock::now();
-        const double el = std::chrono::duration<double>(now - tReport).count();
-        if (el >= (double)opt.reportSeconds) {
-            stats.uptimeSeconds = std::chrono::duration<double>(now - tStart).count();
-            stats.hashrate = intervalHashes / el / 1e6;
-            stats.hashrateAvg =
-                stats.uptimeSeconds > 0
-                    ? stats.totalNonces / stats.uptimeSeconds / 1e6
-                    : 0.0;
-            stats.epoch = job.epoch;
-            stats.pushSample(stats.hashrate);
-            // Sampled ONCE and reused: calling gpu.sample() twice would
-            // accumulate one reading and display a different one.
-            const GpuTelemetry sample = gpu.sample();
-            if (sample.valid)
-                stats.addPowerSample(sample.powerMilliwatts / 1000.0, el);
-            printReadout(stats, sample, tty);
-            intervalHashes = 0;
-            tReport = now;
-        }
+        reportReadout(false);
     }
 
     // Shutdown output, ordered so it does not collide with whatever the shell

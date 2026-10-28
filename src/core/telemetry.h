@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -661,8 +662,10 @@ inline void printReadout(const MinerStats &s, const GpuTelemetry &t, bool tty) {
         if (macs)
             snprintf(rawField, sizeof(rawField), ",\"candidates_per_s\":%.0f",
                      s.hashrate * 1e6);
+        const auto timestampMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
         printf(
-            "{\"uptime_s\":%.0f,\"algo\":\"%s\",\"backend\":\"%s\","
+            "{\"timestamp_unix_ms\":%llu,\"uptime_s\":%.0f,\"algo\":\"%s\",\"backend\":\"%s\","
             "\"rate\":%.2f,\"rate_avg\":%.2f,\"unit\":\"%s\","
             "\"eff\":%.3f,\"eff_unit\":\"%s\","
             "\"mhs\":%.2f,\"mhs_avg\":%.2f,\"eff_mh_w\":%.3f,"
@@ -670,6 +673,7 @@ inline void printReadout(const MinerStats &s, const GpuTelemetry &t, bool tty) {
             "\"temp_c\":%u,\"fan_pct\":%u,"
             "\"epoch\":%llu,\"accepted\":%llu,"
             "\"rejected\":%llu,\"nonces\":%llu%s}\n",
+            (unsigned long long)timestampMs,
             s.uptimeSeconds, s.algo.c_str(), s.backend.c_str(),
             shownRate, shownAvg, rateUnit, shownEff, effUnit,
             shownRate, shownAvg, shownEff,

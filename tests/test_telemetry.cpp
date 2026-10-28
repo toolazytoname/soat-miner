@@ -7,7 +7,15 @@
 #include <cstring>
 #include <string>
 
+#if defined(_WIN32)
+#include <io.h>
+#define dup _dup
+#define dup2 _dup2
+#define close _close
+#define fileno _fileno
+#else
 #include <unistd.h>
+#endif
 
 #include "../src/core/telemetry.h"
 
@@ -15,15 +23,15 @@ using om::GpuTelemetry;
 using om::MinerStats;
 
 static std::string readoutFor(const char *algo, double macsPerUnit = 0,
-                              double rate = 0, bool tty = true) {
+                              double rate = -1, bool tty = true) {
     MinerStats stats;
     stats.algo = algo;
-    stats.hashrate = rate > 0 ? rate : 123.45;
+    stats.hashrate = rate >= 0 ? rate : 123.45;
     // Deliberately NOT the same as the rate. Both are printed on one line, so
     // an assertion looking for the converted rate would be satisfied by the
     // average and pass a build where only the rate is wrong - which is how a
     // mutation of shownRate alone survived this test once.
-    stats.hashrateAvg = rate > 0 ? rate / 2.0 : 120.0;
+    stats.hashrateAvg = rate >= 0 ? rate / 2.0 : 120.0;
     stats.macsPerUnit = macsPerUnit;
     stats.history = {110.0, 123.45};
 
@@ -116,6 +124,24 @@ int main() {
         return 1;
     }
 
-    puts("telemetry unit labels: ok");
+    const std::string idle = readoutFor("pearl-pow", kPearlMacs, 0.0, false);
+    const char *key = "\"timestamp_unix_ms\":";
+    const auto pos = idle.find(key);
+    const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    unsigned long long stamp = 0;
+    try {
+        if (pos != std::string::npos)
+            stamp = std::stoull(idle.substr(pos + strlen(key)));
+    } catch (...) { stamp = 0; }
+    if (idle.find("\"rate\":0.00") == std::string::npos ||
+        idle.find("\"unit\":\"T MAC/s\"") == std::string::npos ||
+        stamp < (unsigned long long)(nowMs - 1000) ||
+        stamp > (unsigned long long)(nowMs + 1000)) {
+        fprintf(stderr, "idle statistics need a zero rate and current timestamp:\n%s", idle.c_str());
+        return 1;
+    }
+
+    puts("telemetry units, zero rate and timestamp: ok");
     return 0;
 }

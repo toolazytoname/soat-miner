@@ -131,3 +131,21 @@ Authoritative Windows receipts: `large-thermal-aba-summary.json`, the immutable 
 A bounded local diagnostic of the pinned KRig 1.5.12 binary completed TLS with an untrusted self-signed localhost certificate and sent 166 application bytes. No jobs were provided, no trust roots were changed, and the temporary test key was deleted. This probes certificate-chain rejection only; it does not independently test hostname policy. The vendor logged a certificate fingerprint, which is not proof that an untrusted chain was rejected.
 
 `tools/probe_krig_certificate_policy.py` reproduces the explicit guarded diagnostic and returns a nonzero policy result when an untrusted certificate is accepted. The own supervisor in the separate RainbowMiner repository now supplies the mandatory verified-TLS relay for its normal route. Raw `stratum+ssl` URL validation alone is not represented as certificate-policy verification. No Defender setting was changed.
+
+
+## Waiting-statistics correction after the kernel measurements
+
+A sustained real-pool session exposed a host reporting defect: when no valid
+replacement job was available, `fetch()` warnings kept the logfile fresh but
+the old positive rate remained the last statistics record. This is corrected
+by zero-rate waiting heartbeats after the first prepared job, per-record
+`timestamp_unix_ms`, and consumer-side timestamp validation. CUDA kernels,
+proof encoding, shape and tile selection are unchanged.
+
+The preserved original binary reproduced the missing-heartbeat defect against
+a loopback fixture. The corrected binary emitted three distinct zero-rate
+heartbeats during a 50-second retired-job period, then resumed above 10 T MAC/s
+with a new timestamp. Both guards restored their original power limits. Four
+CPU CTests also passed. The loopback test credits no shares and proves no
+income; the earlier A/B/A measurements and original-pool proof receipts remain
+separate evidence. Cold/resumption rates are not new steady-state benchmarks.

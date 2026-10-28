@@ -979,3 +979,23 @@ https://sonofatech.com
 ## License
 
 MIT. Do what you want with it.
+
+
+### Local 3090 statistics correction
+
+Structured rate records now carry `timestamp_unix_ms`. After a real job has
+established the algorithm's rate unit, waiting for replacement work emits a
+zero-rate heartbeat rather than retaining the old positive rate. This changes
+host-side reporting only; the CUDA kernels and proof format are unchanged.
+
+The Windows build includes the CPU-only `telemetry-host` CTest. For an explicit
+bounded real-CUDA waiting/recovery check, stop other GPU workloads and run the
+project environment's Python elevated with:
+
+```powershell
+.venv\Scripts\python.exe tools\test_waiting_telemetry.py --exe <source-exe> --output <new-run-directory>
+```
+
+It uses a loopback mock, a 50-second job retirement, and the existing guarded
+220 W single-GPU lease. No real pool or paid shares are involved. Keep the
+real-pool proof gate separate from this behavioural test.

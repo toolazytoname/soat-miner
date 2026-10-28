@@ -185,6 +185,9 @@ install(TARGETS soat-miner RUNTIME DESTINATION bin)
 # workflow proves that its CMake build includes the BC3 client sources.
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(test-telemetry tests/test_telemetry.cpp)
+  target_include_directories(test-telemetry PRIVATE src)
+  add_test(NAME telemetry-host COMMAND test-telemetry)
   find_package(Threads REQUIRED)
   add_executable(test-btc-stratum
     tests/test_btc_stratum.cpp
