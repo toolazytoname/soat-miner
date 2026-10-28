@@ -999,3 +999,5 @@ project environment's Python elevated with:
 It uses a loopback mock, a 50-second job retirement, and the existing guarded
 220 W single-GPU lease. No real pool or paid shares are involved. Keep the
 real-pool proof gate separate from this behavioural test.
+
+Unit calibration for this Windows fixture: [KRig / SOAT operation-count evidence](docs/PRL3090-UNIT-CALIBRATION.md). The calibrated units do not by themselves establish a performance or earning advantage.
