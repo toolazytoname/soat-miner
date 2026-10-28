@@ -64,3 +64,10 @@ An additional opt-in specialization makes one algebraic simplification at fixed 
 The 128x128 and 64x128/min-three-block variants compiled for SM86 in `build/prl3090-fold`. They have **not passed the GPU differential gate yet at this checkpoint**, and no correctness, speed or pool-acceptance claim is made for them. The ongoing A/B/A uses the earlier preserved baseline and fixed-K/rank binaries, not this new build.
 
 `tools/run_correctness_suite.py` is the reusable gate for these candidates. It runs the resource helper and complete-buffer oracle comparisons at 256x768 (a short M swizzle group), 1024x1024, and 4096x65536, with each direct GPU child under the power/temperature/mutex guard. Three hardware-free fault tests confirm that a guard failure, missing power restore, or zero exit without a full-buffer result aborts the suite. The suite is not an extra automatic GPU workload; run it only after the current comparison has ended.
+
+
+### Static code inspection of the single-fold build
+
+Official CUDA 13.1.115 `cuobjdump` and `nvdisasm` were obtained from the same SHA-256-pinned NVIDIA manifest into `D:\Apps\CUDAInspectors\13.1.1`, without changing the installed compiler, driver or global PATH. `tools/setup_cuda_inspectors.py` and `tools/inspect_singlefold_sass.py` reproduce installation and static inspection. These tools inspect binary files and do not run a GPU workload.
+
+Within the same `prl3090-fold` binary, the fixed generic 128x128 kernel has 1,052 static SASS instructions; the single-fold version has 1,028. The latter has 16 fewer SHF and 16 fewer LOP3 instructions, but 16 more SEL instructions and several fewer uniform operations. Both use 124 registers and report zero stack/local bytes. This establishes a compiled-code change, not a dynamic instruction saving, correctness proof or speedup. Full-buffer GPU validation and instrumented counter analysis remain pending for the single-fold candidate.
