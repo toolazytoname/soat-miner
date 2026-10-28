@@ -1001,3 +1001,5 @@ It uses a loopback mock, a 50-second job retirement, and the existing guarded
 real-pool proof gate separate from this behavioural test.
 
 Unit calibration for this Windows fixture: [KRig / SOAT operation-count evidence](docs/PRL3090-UNIT-CALIBRATION.md). The calibrated units do not by themselves establish a performance or earning advantage.
+
+Relay stability investigation and the invalidated first backend comparison: [duplex idle deadline evidence](docs/PRL3090-RELAY-IDLE.md).
