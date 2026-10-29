@@ -14,15 +14,15 @@ class Gpu:
  def __init__(self):
   self.lib=c.WinDLL('C:/Windows/System32/nvapi64.dll');self.query=self.lib.nvapi_QueryInterface
   self.query.argtypes=[c.c_uint32];self.query.restype=c.c_void_p
-  assert self.fn(0x0150E828,[])()==0,'NVAPI initialization failed'
+  if self.fn(0x0150E828,[])()!=0:raise RuntimeError('NVAPI initialization failed')
   handles=(c.c_void_p*64)();n=c.c_int()
-  assert self.fn(0xE5AC921F,[c.POINTER(c.c_void_p),c.POINTER(c.c_int)])(handles,c.byref(n))==0 and n.value==1,'Expected one NVIDIA GPU'
+  if self.fn(0xE5AC921F,[c.POINTER(c.c_void_p),c.POINTER(c.c_int)])(handles,c.byref(n))!=0 or n.value!=1:raise RuntimeError('Expected one NVIDIA GPU')
   self.handle=handles[0];self.thermal=self.fn(0x65FE3AAD,[c.c_void_p,c.POINTER(Thermal)]);self.mask=0
   for b in range(32):
    t=Thermal();t.version=c.sizeof(Thermal)|(2<<16);t.mask=1<<b
    if self.thermal(self.handle,c.byref(t))!=0:break
    self.mask|=1<<b
-  assert self.mask&512,'Memory junction sensor is not supported'
+  if not self.mask&512:raise RuntimeError('Memory junction sensor is not supported')
  def fn(self,ident,args):
   p=self.query(ident)
   if not p:raise RuntimeError('NVAPI interface not available')

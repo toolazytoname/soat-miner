@@ -143,3 +143,14 @@ The compiler still used 210 registers for streamed B, the same as the control; e
 All six guarded stages (warmup plus five cases) stopped on their fixed durations and restored power. The one-shot task ended successfully, no owned GPU child remained, and the default production configuration was byte-for-byte unchanged. The five completed temporary comparison/proof/screen task definitions were exported and removed; normal mining, recovery and panel tasks remain. All source and evidence stay available for later investigation.
 
 One original bounded real-pool session then resumed using the unchanged aa693 repaired app, 220 W, automatic clocks/fans and original wallet/pool/deadline. At 05:44 UTC the actual CUDA process and fresh statistics were verified, with 3 accepted shares, zero rejected/stale, and one authenticated TLS session without failures. This is a current-session compatibility check, not a completed payout or a new performance percentage. Evidence: D:\\AI\\Playgrounds\\soat-miner\\20261029-streamb-iteration\\production-resume-verification.json.
+
+
+## NVAPI initialization must survive Python optimization
+
+A read-only audit found that NVAPI initialization and GPU enumeration were executed inside assert expressions. Python -O removes those expressions entirely, so the old optimized interpreter skipped both required calls and retained an invalid handle. A fake-driver regression reproduced the failure in both repositories before correction, without hardware or power calls.
+
+Both telemetry modules now execute initialization and enumeration unconditionally, reject their error codes or a GPU count other than one with RuntimeError, and explicitly require the memory-junction sensor. Seven fake-driver checks cover required call execution, initialization failure, enumeration failure, zero/multiple GPUs, missing junction sensor and read-only sampling. All 89 manager host checks and 52 relevant source-tool checks pass in normal Python and -O.
+
+Four actual read-only samples (both modules, normal and -O) then passed against the installed driver. They only initialized/read telemetry, never called the power setter or started a CUDA workload. The original mining process PID and creation time remained identical throughout, and its 220 W cap and accepted-share progress were preserved. The already running normal-mode miner/controller was not restarted; future controller/tool launches load the corrected initialization. This reliability repair changes no CUDA kernel, binary, throughput claim, fee policy or deadline.
+
+Windows evidence: D:\\AI\\Playgrounds\\RainbowMiner\\20261029-telemetry-init, including red repro logs, both-mode host results and the actual read-only smoke receipt.
