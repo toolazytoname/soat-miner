@@ -209,3 +209,28 @@ The fold-issue/cache-A suite has now passed all10 GPU gates, including three sha
 Two additional opt-in variants have compiled in45.4 seconds during that screen warmup, before its reporting windows. Deferred fold splits the eight warps into0..3 and4..7, letting the second group consume its old rank accumulators just after the next staging barrier, before any next-rank update. The final pending rank is explicitly flushed after the loop. This tests cross-warp tensor/ALU phase overlap, distinct from immediate per-tile folding. Actual scheduler benefit is unproven; full transcript equality, especially final word15, is mandatory.
 
 The other variant uses compile-time equal per-thread16-byte slices, unsigned copy indices and explicit unrolling. A static assertion requires both A/B slices to divide the256-thread block exactly. It retains the original cache policy, copy groups, wait/drain behavior and all data. The hypothesis is simpler address lowering, not a claimed gain from static instruction counts. Both keep the original template path and production pin untouched. Three runner fault checks pass per Python mode and the new10-case GPU plan validates without starting GPU work. Evidence: `D:\AI\Playgrounds\soat-miner\20261029-deferredcopy-iteration`. GPU validation waits for the existing screen to finish; no parallel heavy GPU task is started.
+
+
+## Cache-A short screen and user-requested shutdown (2026-10-29)
+
+The fold-issue/cache-A screen completed before the user requested saving the current work and shutting down Windows. All 10 resource/full-buffer GPU gates passed with zero differing words for the recompiled control and both candidates. The tested SM86 binary is SHA-256 6c43f695caba655e6a997f59c82f2c53b6517ac7e66041297ee3cd7bc033feea, compiled from CUDA source 7c58cc28819ad65e1c02ccb996f5c66a77630fb6.
+
+At 220 W, the predeclared run used 360 seconds of warmup and A0/C1/A1/C2/A2 stages of 120 seconds each. The fixed final 30 seconds of each stage produced:
+
+| Stage | Variant | T MAC/s | Mean GPU W |
+| --- | --- | ---: | ---: |
+| A0 | Control | 54.415082 | 219.812 |
+| C1 | Interleaved fold issue | 52.650538 | 219.808 |
+| A1 | Control | 54.150281 | 219.833 |
+| C2 | L1 cache-A copy | 57.001979 | 219.817 |
+| A2 | Control | 53.909221 | 219.833 |
+
+All final windows passed the <=2 C thermal-range gate; control spread was 0.938358%. Against adjacent controls, fold issue observed -3.006749% throughput and -3.000554% board efficiency, so it was rejected. Cache-A observed **+5.501094% throughput and +5.508809% board efficiency**, qualifying only for longer confirmation. All six guarded stages, including warmup, ended at their prescribed duration with child exit 0 and restored power.
+
+This is a provisional synthetic full-attempt screen relative to the open control. It is not a confirmed gain, a win over KRig, a candidate pool-acceptance result, or measured earnings. The longer A/B/A confirmation did not start: preflight detected foreign GPU clients and no confirmation task was created. The subsequent user pause takes precedence; no clients were killed or added to an allowlist.
+
+Deferred-fold and unsigned unrolled-copy code is separately committed at d3dc28d69fe79423f572bbced0567f077162d85c and compiled into SHA-256 31f2097577c2121391e75ebf7ad7413b66763c20cc35e8976fb84c910e092a3f. Static disassembly/resource inspection is saved, but these variants have not passed GPU correctness or timing. Reduced static instruction counts are not a speed result. A combined unrolled-copy/cache-A variant has not yet been implemented.
+
+The default production app remains SHA-256 41263293ace4ac4a9901ceb6538adc59d17e0fcb95586f4f48970e8d549d2f54 and is stopped. No fee, wallet, pool, original first-payout threshold or absolute deadline was changed. Shutdown preflight found no owned experiment/miner process, no task triggers, and an actual 370 W default/restored cap. No further benchmark was launched.
+
+Windows evidence: D:\AI\Playgrounds\soat-miner\20261029-foldissue-iteration\screen\result.json, proof-review.json, screen-decision.json and shutdown-preflight.json. Follow-up build/static evidence: 20261029-deferredcopy-iteration. Resume from the existing continuation-checkpoint.json only after checking the original deadline and current GPU clients.
