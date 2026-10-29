@@ -7,7 +7,7 @@ def save(path,obj):
  t=path.with_suffix(".tmp");t.write_text(json.dumps(obj,indent=2),encoding="utf-8");t.replace(path)
 def cancelled(out,initial):return (out/"stop.request").exists() or (CANCEL.exists() and CANCEL.stat().st_mtime_ns!=initial)
 def main():
- ap=argparse.ArgumentParser();ap.add_argument("--output",type=pathlib.Path,required=True);ap.add_argument("--build",choices=["prl3090-fold","prl3090-fixed","prl3090-occupancy","prl3090-large","prl3090-warpwide","prl3090-prefetch"],default="prl3090-fold");ap.add_argument("--variants",nargs="+",choices=VARIANTS,default=["sm86-singlefold-s2-g8-k64","sm86-singlefold-m64n128-b3-k64"]);ap.add_argument("--check-only",action="store_true");a=ap.parse_args();build=ROOT/"build"/a.build
+ ap=argparse.ArgumentParser();ap.add_argument("--output",type=pathlib.Path,required=True);ap.add_argument("--build",choices=["prl3090-fold","prl3090-fixed","prl3090-occupancy","prl3090-large","prl3090-warpwide","prl3090-prefetch","prl3090-pool-buffer"],default="prl3090-fold");ap.add_argument("--variants",nargs="+",choices=VARIANTS,default=["sm86-singlefold-s2-g8-k64","sm86-singlefold-m64n128-b3-k64"]);ap.add_argument("--check-only",action="store_true");a=ap.parse_args();build=ROOT/"build"/a.build
  for exe in ["test-pearl-kernel-resources.exe","test-pearl-mining-shape.exe"]:
   if not (build/exe).is_file():raise ValueError("Missing GPU test target: "+exe)
  cases=[("resources","test-pearl-kernel-resources.exe",[])]

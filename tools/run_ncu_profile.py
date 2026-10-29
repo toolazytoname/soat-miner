@@ -3,7 +3,7 @@ Clock control is always none. No pool, wallet, driver or security changes.
 """
 import argparse,datetime,hashlib,json,math,os,pathlib,signal,subprocess,sys,time,traceback
 from gpu_telemetry import Gpu
-from run_guarded import MiningLease,gpu_processes,DESKTOP_PROCESSES
+from run_guarded import MiningLease,gpu_processes,DESKTOP_PROCESSES,gpu_busy_before_start
 from owned_job import OwnedJob
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 NCU_RECEIPT=pathlib.Path("D:/Apps/NsightCompute/2025.4.1.2/install-receipt.json")
@@ -28,7 +28,7 @@ def main():
   try:
    if interrupted[0] or (a.output/"stop.request").exists() or (cancel.exists() and cancel.stat().st_mtime_ns!=initial_cancel):raise RuntimeError("manual_stop_before_profile")
    if not all(math.isfinite(initial[k]) for k in ["PowerLimit","Temperature","Hotspot","MemoryJunction"]):raise RuntimeError("invalid_gpu_telemetry")
-   if initial["Utilization"]>10 or initial["MemoryMiB"]>2048:raise RuntimeError("GPU busy before profile")
+   if gpu_busy_before_start(initial,utilization_limit=10,memory_limit=2048):raise RuntimeError("GPU busy before profile")
    if any(pid!=os.getpid() and name not in DESKTOP_PROCESSES for pid,name in gpu_processes().items()):raise RuntimeError("Another GPU application is present")
    if initial["Temperature"]>=80 or initial["Hotspot"]>=100 or initial["MemoryJunction"]>=96:raise RuntimeError("GPU too warm before profile")
    env=os.environ.copy();env.update(SOAT_PEARL_SHAPE="4096x65536",SOAT_PEARL_TILE=a.tile);env.pop("SOAT_PEARL_PROFILE",None)

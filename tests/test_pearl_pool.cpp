@@ -29,7 +29,24 @@ static std::string notify(const std::string &header, const std::string &target,
            "\",\"target\":\"" + target + "\",\"cert_version\":3}}";
 }
 
-int main() {
+int main(int argc, char **argv) {
+    // CPU-only public-API driver for socket framing regression tests.
+    if (argc == 3 && std::string(argv[1]) == "--fetch-loopback") {
+        if (!platformInit()) return 3;
+        int code = 2;
+        {
+            PearlPoolSource source("127.0.0.1", std::stoi(argv[2]),
+                                   "public-fixture", "cpu-framing-test");
+            Job job;
+            const bool valid = source.fetch(&job);
+            printf("{\"valid\":%s,\"job_id\":%s}\n",
+                   valid ? "true" : "false",
+                   jsonQuoted(valid ? poolJobId(job.extra) : "").c_str());
+            code = valid ? 0 : 2;
+        }
+        platformShutdown();
+        return code;
+    }
     const uint64_t oneLimbs[4] = {1, 0, 0, 0};
     bool ok = true;
     ok &= expect("JSON quotes every control character",

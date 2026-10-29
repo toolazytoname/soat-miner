@@ -105,6 +105,22 @@ DESKTOP_PROCESSES = {'dwm.exe', 'explorer.exe', 'shellhost.exe', 'msedge.exe',
                      'shellexperiencehost.exe'}
 
 
+
+def gpu_busy_before_start(g, *, utilization_limit=15, memory_limit=2500):
+    """Keep original busy limits, except a verified low-clock/low-power desktop state.
+
+    Callers must still reject non-desktop GPU clients independently.
+    """
+    def valid(value):
+        return not isinstance(value,bool) and isinstance(value,(int,float)) and math.isfinite(value) and value>=0
+    utilization=g.get("Utilization");memory=g.get("MemoryMiB")
+    if not valid(utilization) or utilization>100 or not valid(memory):return True
+    if memory>memory_limit:return True
+    if utilization<=utilization_limit:return False
+    power=g.get("Power");core=g.get("CoreClockMHz");memory_clock=g.get("MemoryClockMHz")
+    idle_desktop=(all(valid(v) for v in (power,core,memory_clock)) and power<=30 and core<=405 and memory_clock<=810)
+    return not idle_desktop
+
 class MiningLease:
     """Coordinate with the existing KRig controller using its named mutex."""
     def __enter__(self):
@@ -164,7 +180,7 @@ def _run_owned(args):
         raise RuntimeError('Stop request already exists; use a new run directory')
     gpu = Gpu()
     before = gpu.read()
-    if before['Utilization'] > 10 or before['MemoryMiB'] > 2048:
+    if gpu_busy_before_start(before, utilization_limit=10, memory_limit=2048):
         raise RuntimeError('GPU is busy; no process or power change made')
     unsafe=thermal_reason(before)
     if unsafe:

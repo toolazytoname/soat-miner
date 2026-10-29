@@ -658,7 +658,12 @@ class PearlPoolSource : public JobSource {
         do {
             // Poll with no timeout when we already have work: take whatever
             // has arrived and get straight back to mining.
-            if (!readable(fd_, haveJob_ ? 0 : 50)) {
+            // A preceding recv may have coalesced auth and notify lines.
+            // Consume complete buffered lines before polling the socket;
+            // otherwise a quiet pool hides already-received work until its
+            // next packet arrives.
+            if (pending_.find('\n') == std::string::npos &&
+                !readable(fd_, haveJob_ ? 0 : 50)) {
                 if (haveJob_) return;
                 continue;
             }

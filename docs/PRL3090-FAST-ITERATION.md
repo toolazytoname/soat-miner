@@ -80,3 +80,20 @@ Run `tools/run_correctness_suite.py` with `--build prl3090-warpwide` and the sel
 `tools/run_fast_screen.py --plan <plan.json> --output <new-run>` uses `mode: screen` or `mode: confirm`. `--check-only` validates the plan and binary/proof linkage without GPU work. Plans and full records for this experiment remain in `D:\AI\Playgrounds\soat-miner\20261029-warpwide-iteration`.
 
 The screen and confirmation runner has seven CPU checks in each of normal Python and `-O`. Original stop/deadline, one-GPU ownership, automatic clocks/fans and power restoration stay in force. No automatic production promotion or repeated benchmark loop is installed.
+
+## Pool-input buffering correction, 2026-10-29
+
+A post-reboot source run stopped with source_telemetry_unavailable before collecting a valid performance window. Its log also contains TLS/auth resets. Two direct verified-TLS probes and two probes through the manager's unchanged verified helper subsequently received authorize success and a complete job promptly; these probes do not establish that all historical resets were caused by the miner.
+
+The host reader had a separate reproducible framing bug. readLine can receive an authorize acknowledgement and a notification together, returning the acknowledgement while retaining the notification in pending_. drain then polled only the kernel socket. If the peer sent no new packet, it ignored the complete buffered job, waited eight seconds and reported no usable work.
+
+The correction checks for a complete buffered line before polling the socket. A CPU-only public-API loopback regression failed on the old reader in 8.096 seconds, returning no job despite a valid queued notification. After correction, all five socket checks pass in normal Python and -O: coalesced acknowledgement/job, multiple queued jobs with latest winning, notification before acknowledgement, delayed notification, and rejection of malformed work. The existing host protocol checks also pass. No GPU, share submission or wallet secret is needed for these checks.
+
+Build test-pearl-pool in the desired CMake build. Set SOAT_POOL_TEST_EXE to that executable, then run tests/test_pearl_pool_buffered.py; the driver is restricted to 127.0.0.1. Production still requires matching full-buffer GPU verification and real-pool acceptance. Kernel timing, developer-fee policy, original deadline, transport validation and proof format are unchanged. This is an input-availability correction, not a claimed percentage win over KRig.
+
+
+The repaired native SM86 miner is SHA-256 aa693da08d4a79eb3e7e9878020648dec913c12f91a44c07b636001a7a9f0c22. Resource inspection and selected warpwide full-buffer cases 256x768, 1024x1024 and 4096x65536 all passed with zero differing words, child exit 0 and restored power. The large case covers 1,048,576 transcript tiles. Three successful cases were retained from the first suite; its final large case was refused by startup load checks before launching. Only that refused case was then run separately in an idle state. The original failed suite receipt is preserved, and an explicit aggregate links both sets; the failed suite was not relabeled as successful.
+
+The guard's desktop startup check retains 10% utilization and 2048 MiB limits for experiments. A high reported percentage is excused only with all of board power <=30 W, graphics clock <=405 MHz and memory clock <=810 MHz. Independent unknown GPU-client, thermal and cancellation checks remain in force. This avoids a low-clock desktop false positive without accepting an actively clocked workload. The production manager additionally uses a bounded 30-second idle preflight wait. No GPU algorithm, proof, clock setting, driver or security setting changes in this repair.
+
+All 39 relevant Python checks pass in normal and optimized modes, including the new eight preflight load scenarios. Real-pool acceptance of the newly pinned app and the new matched KRig comparison are still pending at this commit; earlier observations are not substituted for those gates. Windows repair evidence is under D:\\AI\\Playgrounds\\soat-miner\\20261029-postmove-krig-comparison and its -02 continuation.
