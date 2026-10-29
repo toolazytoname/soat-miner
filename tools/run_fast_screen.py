@@ -36,6 +36,16 @@ def validate(plan):
     if len({cases[i]["tile"] for i in control_indices})!=1:raise ValueError("Baseline controls must be identical")
     return cases
 
+def poll_public_pool(wallet,last_ok):
+    """Preserve one continuous API-outage clock across all screen cases."""
+    try:
+        snapshot=fetch(wallet)
+    except Exception as error:
+        return {"last_ok":last_ok,"snapshot":None,"error":str(error),
+                "stop_reason":"pool_api_unavailable_30_minutes" if time.monotonic()-last_ok>=1800 else None}
+    return {"last_ok":time.monotonic(),"snapshot":snapshot,"error":None,
+            "stop_reason":"payout_threshold_accumulated" if snapshot["goal_reached"] else None}
+
 def summarize(dest,seconds=30):
     g=load(dest/"guard-status.json")
     if g.get("stop_reason")!="duration-complete" or not g.get("power_restored"):raise ValueError("Guard or power restoration failed")
@@ -97,20 +107,25 @@ def main():
         if remaining_seconds(STATUS)<plan["warmup_seconds"]+len(cases)*plan["case_seconds"]+90:raise ValueError("Insufficient original time budget")
         balance=fetch(config["wallet"]);state["preflight_pool"]=balance
         if balance["goal_reached"]:raise ValueError("Original first payout threshold already reached")
+        pool_last_ok=time.monotonic()
         for c in [{"name":"warmup","tile":cases[0]["tile"],"seconds":plan["warmup_seconds"]}]+cases:
             if limits():raise RuntimeError(limits())
             if digest(CONFIG)!=config_sha or digest(plan["executable"])!=plan["executable_sha256"]:raise ValueError("Configuration or executable changed")
             dest=out/c["name"];dest.mkdir();state.update(phase=c["name"],active_output=str(dest));save(target,state)
             done=threading.Event();stop_reason=[]
             def watch():
+                nonlocal pool_last_ok
                 next_pool=time.monotonic()+60
                 while not done.wait(1):
                     reason=limits()
                     if reason is None and time.monotonic()>=next_pool:
+                        observation=poll_public_pool(config["wallet"],pool_last_ok)
+                        pool_last_ok=observation["last_ok"];next_pool=time.monotonic()+60
+                        reason=observation["stop_reason"]
+                        event={"time":datetime.datetime.now(datetime.timezone.utc).isoformat(),"phase":c["name"],"error":observation["error"],"seconds_since_success":time.monotonic()-pool_last_ok,"stop_reason":reason}
                         try:
-                            snapshot=fetch(config["wallet"]);next_pool=time.monotonic()+60
-                            if snapshot["goal_reached"]:reason="payout_threshold_accumulated"
-                        except Exception as exc:reason="pool_check_failed: "+str(exc)
+                            with (out/"pool-polls.ndjson").open("a",encoding="utf-8") as log:log.write(json.dumps(event)+"\n")
+                        except Exception as exc:reason="pool_poll_receipt_failed: "+str(exc)
                     if reason:stop_reason.append(reason);(dest/"stop.request").touch();return
             thread=threading.Thread(target=watch,daemon=True);thread.start();prior={k:os.environ.get(k) for k in ["SOAT_PEARL_TILE","SOAT_PEARL_SHAPE","SOAT_PEARL_PROFILE"]}
             os.environ.update(SOAT_PEARL_TILE=c["tile"],SOAT_PEARL_SHAPE="4096x65536");os.environ.pop("SOAT_PEARL_PROFILE",None)

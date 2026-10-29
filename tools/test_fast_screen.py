@@ -43,4 +43,28 @@ class FastScreenTests(unittest.TestCase):
     def test_confirmation_rejects_a_thermal_excursion(self):
         cases=self.cases([50,60,50]);cases[0]["name"]="A1";cases[1]["name"]="B";cases[2]["name"]="A2";cases[1]["tail"]["steady"]=False
         r=review(cases,"confirm");self.assertFalse(r["comparison_valid"]);self.assertIsNone(r["confirmed_gpu_efficiency_gain_percent"])
+
+from unittest.mock import patch
+import run_fast_screen as fs
+class PoolAvailabilityTests(unittest.TestCase):
+    def test_transient_failure_preserves_last_success_and_continues(self):
+        with patch.object(fs,"fetch",side_effect=TimeoutError("fixture")),patch.object(fs.time,"monotonic",return_value=100):
+            r=fs.poll_public_pool("public-test",0)
+        self.assertEqual(r["last_ok"],0);self.assertIsNone(r["stop_reason"]);self.assertIn("fixture",r["error"])
+    def test_continuous_failure_stops_at_original_thirty_minute_limit(self):
+        for elapsed,expected in [(1799,None),(1800,"pool_api_unavailable_30_minutes")]:
+            with self.subTest(elapsed=elapsed),patch.object(fs,"fetch",side_effect=TimeoutError()),patch.object(fs.time,"monotonic",return_value=elapsed):
+                self.assertEqual(fs.poll_public_pool("public-test",0)["stop_reason"],expected)
+    def test_success_resets_last_success(self):
+        with patch.object(fs,"fetch",return_value={"goal_reached":False}),patch.object(fs.time,"monotonic",return_value=1100):
+            r=fs.poll_public_pool("public-test",0)
+        self.assertEqual(r["last_ok"],1100);self.assertIsNone(r["error"]);self.assertIsNone(r["stop_reason"])
+    def test_success_between_failures_prevents_accumulating_noncontinuous_outages(self):
+        with patch.object(fs,"fetch",side_effect=[{"goal_reached":False},TimeoutError()]),patch.object(fs.time,"monotonic",side_effect=[1100,2500]):
+            a=fs.poll_public_pool("public-test",0);b=fs.poll_public_pool("public-test",a["last_ok"])
+        self.assertIsNone(b["stop_reason"]);self.assertEqual(b["last_ok"],1100)
+    def test_threshold_still_stops_immediately(self):
+        with patch.object(fs,"fetch",return_value={"goal_reached":True}),patch.object(fs.time,"monotonic",return_value=10):
+            self.assertEqual(fs.poll_public_pool("public-test",0)["stop_reason"],"payout_threshold_accumulated")
+
 if __name__=="__main__":unittest.main(verbosity=2)
