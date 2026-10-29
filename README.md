@@ -4,6 +4,8 @@ An experimental MIT-licensed fork of SOAT Miner. The focus is a reproducible Win
 
 Current status and build instructions: [RTX 3090 experiment](docs/PRL3090.md). One controlled 220 W thermal A/B/A measured +9.71% synthetic throughput over the preserved original kernel, with 0.58% A-control drift. The same new binary then recorded 3 accepted / 0 rejected pool shares through certificate- and hostname-verified TLS. These are scoped experiment results, not a KRig speed or earnings claim. This Windows experiment keeps Defender enabled without adding exclusions. The original upstream overview follows below.
 
+[Open/closed real-pool observations](docs/PRL3090-KRIG-COMPARISON.md): open bracketing mean 50.84 T MAC/s; KRig 59.71 at the same 220 W cap. Strict quality checks were not all met. The open backend retains zero developer fee; the tested KRig localhost route charges 3%. The open fork remains selected for editable source and transparent fees.
+
 ---
 
 # SOAT Miner
