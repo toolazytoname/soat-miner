@@ -43,7 +43,10 @@ def summarize(dest,seconds=30):
     for line in (dest/"child.log").read_text(encoding="utf-8",errors="replace").splitlines():
         try:r=json.loads(line)
         except ValueError:continue
+        if r.get("event")=="error" and str(r.get("msg","")).startswith("candidate failed host verification"):
+            raise ValueError("Benchmark candidate failed host verification")
         if "rate" not in r:continue
+        if r.get("rejected",0)!=0:raise ValueError("Benchmark reports failed candidate attempts")
         if r.get("backend")!="CUDA" or r.get("unit")!="T MAC/s":raise ValueError("Unknown backend rate unit")
         epoch=r.get("timestamp_unix_ms")
         if isinstance(epoch,bool) or not isinstance(epoch,(int,float)) or not math.isfinite(epoch):raise ValueError("Missing current statistics timestamp")

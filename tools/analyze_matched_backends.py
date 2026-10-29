@@ -40,12 +40,16 @@ def measurement_start(plan,session,rows):
     return datetime.datetime.fromisoformat(session["StartTime"]).timestamp()
 def submission_diagnostics(log_path,backend):
     if backend!="soat":return {"unconfirmed_submissions":None,"scope":"Not inferred from the closed miner API"}
-    count=0
+    count=0;failures=0;unsent_old_jobs=0
     for line in log_path.read_text(encoding="utf-8",errors="replace").splitlines():
         try:event=json.loads(line)
         except ValueError:continue
-        if event.get("event")=="error" and "no reply from the pool" in event.get("msg",""):count+=1
-    return {"unconfirmed_submissions":count,"scope":"Source no-reply events, separate from pool accepted/rejected counters"}
+        message=str(event.get("msg",""))
+        if event.get("event")=="error":
+            if "no reply from the pool" in message:count+=1
+            if message.startswith(("solution rejected","candidate failed host verification","pool REJECTED")):failures+=1
+            if "pool job was replaced before submission; proof not sent" in message:unsent_old_jobs+=1
+    return {"unconfirmed_submissions":count,"client_failure_events":failures,"obsolete_job_not_sent_events":unsent_old_jobs,"scope":"Client failure log events, including local/unsent and uncertain outcomes; these are not all pool rejection verdicts. This independently checks legacy zero counters."}
 def case(root,name,final):
     start=load(root/(name+"-start.json"));s=start["session"];backend=start["backend"]
     path=pathlib.Path(s["RunDirectory"])/"telemetry.ndjson"
@@ -64,13 +68,14 @@ def case(root,name,final):
         if any(b.get(k,0)<a.get(k,0) for k in ("AcceptedShares","RejectedShares","StaleShares")):raise ValueError("Share counters went backwards")
     tail=weighted_window(rows,end_epoch=measured_end)
     last=rows[-1];stop=None;share_gate=None
+    diagnostics=submission_diagnostics(path.parent/"selected-profile/miner.log",backend)
     if final:
         stop=load(root/(name+"-stop.json"))
         after=stop["after"]
         if not stop.get("operator_completed_case") or after.get("Status")!="stopped" or not after.get("PowerRestored") or after.get("StopReason")!="user_stop" or stop["actual_after"].get("OldProcesses"):raise ValueError("Case stop/ownership/power gate failed")
         if after.get("SessionId")!=s["SessionId"]:raise ValueError("Case session changed")
-        share_gate=bool(after.get("AcceptedShares",0)) and not after.get("RejectedShares",0) and not after.get("StaleShares",0)
-    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"real_pool_share_gate":share_gate,"planned_seconds":planned,"measurement_start_epoch":anchor,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"submission_diagnostics":submission_diagnostics(path.parent/"selected-profile/miner.log",backend),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
+        share_gate=bool(after.get("AcceptedShares",0)) and not after.get("RejectedShares",0) and not after.get("StaleShares",0) and (backend!="soat" or diagnostics["client_failure_events"]==0)
+    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"real_pool_share_gate":share_gate,"planned_seconds":planned,"measurement_start_epoch":anchor,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"submission_diagnostics":diagnostics,"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
 def analyze(root,unit_receipt):
     units=load(unit_receipt)
     if units.get("status")!="passed" or units.get("native_KRig_TH_to_Tmac_factor")!=1:raise ValueError("Independent unit calibration is required")

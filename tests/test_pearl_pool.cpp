@@ -29,7 +29,74 @@ static std::string notify(const std::string &header, const std::string &target,
            "\",\"target\":\"" + target + "\",\"cert_version\":3}}";
 }
 
+class CounterFixtureSource : public JobSource {
+ public:
+    explicit CounterFixtureSource(bool counters) : counters_(counters) {}
+    const char *describe() const override { return "offline counter fixture"; }
+    bool fetch(Job *) override { return false; }
+    bool submit(const Job &, const Solution &, std::string *) override { return false; }
+    bool poolCounters(uint64_t *a, uint64_t *r, uint64_t *p,
+                      std::string *error) const override {
+        *a = 7; *r = 2; *p = 1; *error = "";
+        return counters_;
+    }
+ private:
+    bool counters_;
+};
+
 int main(int argc, char **argv) {
+    if (argc == 3 && std::string(argv[1]) == "--readout-probe") {
+        const std::string mode = argv[2];
+        CounterFixtureSource source(mode == "async");
+        uint64_t accepted = mode == "benchmark" ? 0 : 11, failed = 0;
+        const JobSource *selected = mode == "benchmark" ? nullptr : &source;
+        const uint64_t hostFailures = mode == "async" ? 3 : 2;
+        refreshSubmissionReadout(selected, hostFailures, &accepted, &failed);
+        refreshSubmissionReadout(selected, hostFailures, &accepted, &failed);
+        printf("{\"accepted\":%llu,\"failed\":%llu}\n",
+               (unsigned long long)accepted, (unsigned long long)failed);
+        return 0;
+    }
+    if (argc == 3 &&
+        (std::string(argv[1]) == "--submit-loopback" ||
+         std::string(argv[1]) == "--submit-stale-loopback" ||
+         std::string(argv[1]) == "--submit-pair-loopback")) {
+        if (!platformInit()) return 3;
+        int code = 2;
+        {
+            PearlPoolSource source("127.0.0.1", std::stoi(argv[2]),
+                                   "public-fixture", "cpu-counter-test");
+            Job job;
+            const bool valid = source.fetch(&job);
+            uint64_t accepted = 0, failed = 0, hostFailures = 0;
+            std::string error;
+            bool submitted = false;
+            if (valid) {
+                if (std::string(argv[1]) == "--submit-stale-loopback")
+                    job.target[0] ^= 1;
+                Solution solution{};
+                solution.extra = "Zml4dHVyZS1ub3QtYS1yZWFsLXByb29m";
+                const int attempts =
+                    std::string(argv[1]) == "--submit-pair-loopback" ? 2 : 1;
+                for (int i = 0; i < attempts; i++) {
+                    error.clear();
+                    submitted = source.submit(job, solution, &error);
+                    if (submitted) accepted++; else hostFailures++;
+                    refreshSubmissionReadout(&source, hostFailures,
+                                             &accepted, &failed);
+                }
+                code = 0;
+            }
+            printf("{\"valid\":%s,\"submitted\":%s,\"accepted\":%llu,"
+                   "\"failed\":%llu,\"error\":%s}\n",
+                   valid ? "true" : "false", submitted ? "true" : "false",
+                   (unsigned long long)accepted, (unsigned long long)failed,
+                   jsonQuoted(error).c_str());
+        }
+        platformShutdown();
+        return code;
+    }
+
     // CPU-only public-API driver for socket framing regression tests.
     if (argc == 3 && std::string(argv[1]) == "--fetch-loopback") {
         if (!platformInit()) return 3;

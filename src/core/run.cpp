@@ -504,7 +504,7 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
     uint64_t extranonceGen =
         stratumSrc ? stratumSrc->extranonceGeneration() : 0;
     uint64_t intervalHashes = 0;
-    uint64_t hostRejected = 0;  // failures this side of the wire, kept separate
+    uint64_t hostRejected = 0;  // host/synchronous failures; async peer counts stay separate
                                 // from what the pool rejected
     const auto tStart = std::chrono::steady_clock::now();
     auto tReport = tStart;
@@ -556,14 +556,8 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
         const auto now = std::chrono::steady_clock::now();
         const double el = std::chrono::duration<double>(now - tReport).count();
         if (el < (double)opt.reportSeconds) return;
-        if (waitingForJob && source) {
-            uint64_t a = 0, r = 0, p = 0;
-            std::string le;
-            if (source->poolCounters(&a, &r, &p, &le)) {
-                stats.accepted = a;
-                stats.rejected = hostRejected + r;
-            }
-        }
+        refreshSubmissionReadout(source.get(), hostRejected,
+                                 &stats.accepted, &stats.rejected);
         stats.uptimeSeconds = std::chrono::duration<double>(now - tStart).count();
         stats.hashrate = waitingForJob ? 0.0 : intervalHashes / el / 1e6;
         stats.hashrateAvg = stats.uptimeSeconds > 0
@@ -808,12 +802,8 @@ int runMiner(Algorithm *algo, const RunOptions &opt, const char *gpuName,
                 logLine(tty, "error", "pool REJECTED the share: " + v);
             const std::string jw = source->takeJobWarning();
             if (!jw.empty()) logLine(tty, "warn", jw);
-            uint64_t a = 0, r = 0, p = 0;
-            std::string le;
-            if (source->poolCounters(&a, &r, &p, &le)) {
-                stats.accepted = a;
-                stats.rejected = hostRejected + r;
-            }
+            refreshSubmissionReadout(source.get(), hostRejected,
+                                     &stats.accepted, &stats.rejected);
         }
 
         reportReadout(false);

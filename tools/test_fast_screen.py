@@ -14,6 +14,19 @@ class FastScreenTests(unittest.TestCase):
         for mode in ["stale","unit","restore"]:
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as folder:
                 with self.assertRaises(ValueError):summarize(self.fixture(folder,mode))
+    def test_failed_attempt_counter_cannot_be_hidden_by_a_fast_tail(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=self.fixture(folder)
+            stats=[json.loads(v) for v in (p/"child.log").read_text().splitlines()]
+            stats[40]["rejected"]=1
+            (p/"child.log").write_text("\n".join(json.dumps(v) for v in stats))
+            with self.assertRaisesRegex(ValueError,"failed candidate attempts"):summarize(p)
+    def test_host_verification_error_rejects_legacy_zero_counter_logs(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=self.fixture(folder)
+            with (p/"child.log").open("a") as log:
+                log.write("\n"+json.dumps({"event":"error","msg":"candidate failed host verification (fixture) - NOT submitted"}))
+            with self.assertRaisesRegex(ValueError,"host verification"):summarize(p)
     def cases(self,rates):return [{"name":name,"tile":name,"tail":{"time_weighted_Tmac_s":rate,"gpu_Tmac_per_joule":rate/220,"steady":True}} for name,rate in zip(["A0","C1","A1","C2","A2"],rates)]
     def test_warming_baseline_cannot_promote_a_candidate(self):
         r=review(self.cases([50,60,55,62,60]));self.assertFalse(r["baseline_controls_stable"]);self.assertIsNone(r["next_candidate"])

@@ -24,6 +24,22 @@ class WeightedBenchmark(unittest.TestCase):
             p.write_text(json.dumps({"event":"error","msg":"solution rejected nonce=fixture no reply from the pool"})+"\n"+json.dumps({"event":"warn","msg":"other"}))
             self.assertEqual(submission_diagnostics(p,"soat")["unconfirmed_submissions"],1)
             self.assertIsNone(submission_diagnostics(p,"krig")["unconfirmed_submissions"])
+    def test_zero_legacy_counter_does_not_hide_client_failures(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);run=root/"run";(run/"selected-profile").mkdir(parents=True)
+            event={"event":"error","msg":"solution rejected nonce=fixture pool job was replaced before submission; proof not sent"}
+            (run/"selected-profile/miner.log").write_text(json.dumps(event),encoding="utf-8")
+            rows=[dict(row(i,50),Stage="selected-profile",ReportedRateUnit="T MAC/s",AcceptedShares=1,RejectedShares=0,StaleShares=0) for i in range(0,606,5)]
+            (run/"telemetry.ndjson").write_text("\n".join(json.dumps(r) for r in rows),encoding="utf-8")
+            def put(name,value):(root/name).write_text(json.dumps(value),encoding="utf-8")
+            put("plan.json",{"analysis_anchor":"first_selected_profile_epoch","cases":[{"name":"A1","planned_seconds":600}]})
+            put("A1-start.json",{"session":{"RunDirectory":str(run),"SessionId":"fixture"},"backend":"soat"})
+            put("A1-stop.json",{"operator_completed_case":True,"after":{"Status":"stopped","PowerRestored":True,"StopReason":"user_stop","SessionId":"fixture","AcceptedShares":1,"RejectedShares":0,"StaleShares":0},"actual_after":{"OldProcesses":[]}})
+            result=case(root,"A1",True)
+            self.assertFalse(result["real_pool_share_gate"])
+            self.assertEqual(result["submission_diagnostics"]["client_failure_events"],1)
+            self.assertEqual(result["submission_diagnostics"]["obsolete_job_not_sent_events"],1)
+            self.assertEqual(result["miner_reported_rejected"],0)
     def test_unstable_observation_does_not_get_promoted_to_controlled_win(self):
         def item(name,rate,steady):
             return {"case":name,"real_pool_share_gate":True,"tail":{"steady":steady,"time_weighted_Tmac_s":rate,"mean_gpu_power_watts":220}}

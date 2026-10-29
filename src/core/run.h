@@ -76,6 +76,23 @@ class JobSource {
     }
 };
 
+// Shared periodic-readout accounting, also exercised by CPU protocol fixtures.
+// A source without asynchronous counters keeps synchronous accepted counts.
+inline void refreshSubmissionReadout(const JobSource *source,
+                                     uint64_t hostFailures,
+                                     uint64_t *accepted, uint64_t *failed) {
+    // This is the legacy combined failure count, not a pool-only verdict:
+    // local verification, not-sent/unconfirmed, and synchronous peer rejects.
+    // Always publish it, including bench/null and synchronous-source paths.
+    *failed = hostFailures;
+    uint64_t a = 0, r = 0, pending = 0;
+    std::string error;
+    if (source && source->poolCounters(&a, &r, &pending, &error)) {
+        *accepted = a;
+        *failed = hostFailures + r;
+    }
+}
+
 /** Solo mining against an Ergo node's /mining API. */
 class ErgoNodeSource : public JobSource {
    public:
