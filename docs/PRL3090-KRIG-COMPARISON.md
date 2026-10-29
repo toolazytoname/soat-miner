@@ -18,7 +18,7 @@ The current source app SHA-256 is aa693da08d4a79eb3e7e9878020648dec913c12f91a44c
 
 KRig's verified localhost-relay test route acknowledges 3% in RAM; the default production config is unchanged. Applying that advertised fee as a theoretical work budget gives 55.945796 T MAC/s, 4.3767% above the source bracket. Legitimate native recognized Kryptex remains a separate advertised 0% reference, so 3% must not be presented as an unavoidable native fee or a Mac forwarding cost. Neither the work-budget model nor these short share counts establish actual income.
 
-The open app remains the editable, zero-developer-fee production selection for compute ownership and learning. Two separately compiled opt-in scheduling candidates are being verified; neither is promoted by these comparison results. The original payout threshold and absolute deadline remain unchanged.
+The open app remains the editable, zero-developer-fee production selection for compute ownership and learning. Two separately compiled opt-in scheduling candidates subsequently passed correctness but failed their predeclared >=3% improvement screen (observed -0.47% and -0.72%); neither was promoted. The original open app has resumed one bounded real-pool session. The original payout threshold and absolute deadline remain unchanged.
 
 Current Windows evidence: D:\AI\Playgrounds\soat-miner\20261029-postmove-krig-comparison-04. Completed reused cases retain their original run directories. The summary and quality receipt retain all fixed endpoints, overruns, unit references and share diagnostics.
 

@@ -123,4 +123,23 @@ All ten guarded cases passed: resource inspection, then three shapes each for th
 | Streamed B | 210 | 0 | 92160 | 1 |
 | Warpwide early copy | 209 | 0 | 92160 | 1 |
 
-The streamed-B source rewrite did not reduce the compiled register count. Neither these resources nor theoretical occupancy prove a speed improvement. A separately predeclared 360-second warmup plus five 90-second A0/C1/A1/C2/A2 cases is now screening both candidates; all controls use the same rebuilt binary. A qualifying candidate must later confirm against the actual deployed aa693 app, so a changed compiler baseline cannot masquerade as a production gain. Production remains unchanged while this bounded screen runs.
+The streamed-B source rewrite did not reduce the compiled register count. Neither these resources nor theoretical occupancy prove a speed improvement. The separately predeclared 360-second warmup plus five 90-second A0/C1/A1/C2/A2 cases has completed; all controls use the same rebuilt binary. Neither candidate qualified, as detailed below. A qualifying candidate must later confirm against the actual deployed aa693 app, so a changed compiler baseline cannot masquerade as a production gain. Production remained unchanged throughout this bounded screen.
+
+
+### Screening outcome: neither candidate promoted
+
+| Case | Exact tile | T MAC/s | Mean GPU W |
+| --- | --- | ---: | ---: |
+| A0 | ampere warpwide large s3 fold k64 | 53.913798 | 219.807 |
+| C1 | ampere warpwide streamb large s3 fold k64 | 53.627866 | 219.821 |
+| A1 | ampere warpwide large s3 fold k64 | 53.849834 | 219.788 |
+| C2 | ampere warpwide early large s3 fold k64 | 53.420959 | 219.801 |
+| A2 | ampere warpwide large s3 fold k64 | 53.763984 | 219.804 |
+
+All final 30-second windows passed the <=2 C thermal range gate. The three controls span 0.278651%, within the 2% limit. Against their respective adjacent controls, streamed B observed **-0.471310% throughput / -0.481622% GPU efficiency**, and early copy **-0.717288% / -0.719306%**. Neither met the predeclared >=3% gain requirement, so neither enters long confirmation or production. These small negative observations are not claimed as precise causal regression estimates or proof that every related schedule is slower.
+
+The compiler still used 210 registers for streamed B, the same as the control; early copy used 209. All had zero local-memory bytes and one resident block/SM. Correct outputs and fewer source-level live fragments did not establish a performance gain.
+
+All six guarded stages (warmup plus five cases) stopped on their fixed durations and restored power. The one-shot task ended successfully, no owned GPU child remained, and the default production configuration was byte-for-byte unchanged. The five completed temporary comparison/proof/screen task definitions were exported and removed; normal mining, recovery and panel tasks remain. All source and evidence stay available for later investigation.
+
+One original bounded real-pool session then resumed using the unchanged aa693 repaired app, 220 W, automatic clocks/fans and original wallet/pool/deadline. At 05:44 UTC the actual CUDA process and fresh statistics were verified, with 3 accepted shares, zero rejected/stale, and one authenticated TLS session without failures. This is a current-session compatibility check, not a completed payout or a new performance percentage. Evidence: D:\\AI\\Playgrounds\\soat-miner\\20261029-streamb-iteration\\production-resume-verification.json.
