@@ -1076,7 +1076,7 @@ __device__ __forceinline__ void mmaS8(uint32_t d[4], const uint32_t a[4],
  * kWarpsM*kWarpsN*32 threads and grid (n/kBlockN, m/kBlockM).
  */
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false, bool kFoldScratchP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
@@ -1101,6 +1101,8 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
     constexpr int kBlockM = kWarpsM * kTilesM * kHashTile;
     constexpr int kBlockN = kWarpsN * kTilesN * kHashTile;
     constexpr int kThreads = kWarpsM * kWarpsN * 32;
+    static_assert(!kFoldScratchP || (kMiningP && kSingleFoldP), "Scratch folds require fixed single-slot mining");
+    static_assert(!kFoldScratchP || kWarpsM*kWarpsN*kTilesM*kTilesN*kTranscriptU32 <= kStagesP*kBlockM*4, "A padding must hold every transcript word");
     // Stages are a parameter because depth and stage count trade against one
     // shared-memory budget: 128 of k will not fit three stages of padded
     // shared, but it fits two. L2 throughput sits at ~91% while DRAM is 21%,
@@ -1340,7 +1342,15 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
                     // fully unrolled double loop. ptxas already handles the
                     // general form better than the "optimised" one. Left as
                     // the general expression on purpose.
-                    if constexpr (kSingleFoldP) {
+                    if constexpr (kFoldScratchP) {
+                        // Fixed-fold experiment: cp.async and ldmatrix never
+                        // touch A's 16-byte row padding. Each warp owns a
+                        // disjoint region, avoiding persistent slot registers.
+                        if (lane == reduction) {
+                            const int word = ((warp*kTilesM+i)*kTilesN+j)*kTranscriptU32+reduction;
+                            *reinterpret_cast<uint32_t*>(sAbase+(word/4)*kAStride+kKBlock+(word%4)*4) = v;
+                        }
+                    } else if constexpr (kSingleFoldP) {
                         // K=2048/rank=128 gives exactly sixteen folds. Each
                         // of lanes 0..15 writes its slot exactly once, so its
                         // old slot is zero: rotl(0,13)^v == v. Other lanes
@@ -1372,6 +1382,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 #undef OM_SA
 #undef OM_SB
 
+    if constexpr (kFoldScratchP) __syncwarp();
 #pragma unroll
     for (int i = 0; i < kTilesM; i++) {
 #pragma unroll
@@ -1398,7 +1409,13 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
                 const int tilesPerSide = rank / kHashTile;
                 const int flat =
                     ((iIdx * blocksPerRow + jIdx) * tilesPerSide + hi) * tilesPerSide + wi;
-                transcripts[flat * kTranscriptU32 + lane] = slot[i][j];
+                if constexpr (kFoldScratchP) {
+                    const int word = ((warp*kTilesM+i)*kTilesN+j)*kTranscriptU32+lane;
+                    transcripts[flat*kTranscriptU32+lane] =
+                        *reinterpret_cast<const uint32_t*>(sAbase+(word/4)*kAStride+kKBlock+(word%4)*4);
+                } else {
+                    transcripts[flat * kTranscriptU32 + lane] = slot[i][j];
+                }
             }
         }
     }
