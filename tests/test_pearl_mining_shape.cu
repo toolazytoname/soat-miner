@@ -14,14 +14,14 @@ using namespace om::pearl;
 #define CK(x) do { const cudaError_t e=(x); if(e!=cudaSuccess) { \
     fprintf(stderr,"CUDA %s at line %d\n",cudaGetErrorString(e),__LINE__);return 1; } } while(0)
 
-template<int WM,int WN,int TM,int TN,int KB,int ST=3,int GM=8,int MIN=1,bool FIX=false,bool SINGLE=false,bool EARLY=false,bool STREAM=false,bool SCRATCH=false>
+template<int WM,int WN,int TM,int TN,int KB,int ST=3,int GM=8,int MIN=1,bool FIX=false,bool SINGLE=false,bool EARLY=false,bool STREAM=false,bool SCRATCH=false,bool FOLD=false,bool CACHEA=false>
 cudaError_t launch(const int8_t* a,const int8_t* bn,uint32_t* tr,int m,int n,int k,int rank) {
     constexpr int bm=WM*TM*16,bnSize=WN*TN*16;
     constexpr int shared=ST*(bm+bnSize)*(KB+16);
-    cudaError_t e=cudaFuncSetAttribute(noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE,EARLY,STREAM,SCRATCH>,
+    cudaError_t e=cudaFuncSetAttribute(noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE,EARLY,STREAM,SCRATCH,FOLD,CACHEA>,
         cudaFuncAttributeMaxDynamicSharedMemorySize,shared);
     if(e!=cudaSuccess)return e;
-    noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE,EARLY,STREAM,SCRATCH><<<dim3(n/bnSize,m/bm),WM*WN*32,shared>>>(
+    noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE,EARLY,STREAM,SCRATCH,FOLD,CACHEA><<<dim3(n/bnSize,m/bm),WM*WN*32,shared>>>(
         a,bn,nullptr,tr,m,n,k,rank,false);
     return cudaGetLastError();
 }
@@ -44,8 +44,9 @@ int main(int argc,char** argv) {
     const bool streamB=!strcmp(which,"sm86-warpwide-streamb-large-s3-fold-k64"),wideEarly=!strcmp(which,"sm86-warpwide-early-large-s3-fold-k64");
     const bool early2=!strcmp(which,"sm86-early-large-s2-fold-k64"),early3=!strcmp(which,"sm86-early-large-s3-fold-k64");
     const bool foldScratch=!strcmp(which,"sm86-warpwide-scratch-large-s3-fold-k64"),n256=!strcmp(which,"sm86-warpwide-n256-s3-fold-k64");
+    const bool foldIssue=!strcmp(which,"sm86-warpwide-foldissue-large-s3-k64"),cacheA=!strcmp(which,"sm86-warpwide-cachea-large-s3-fold-k64");
     if(m<=0||n<=0||m>8192||n>65536||m%256||n%256||k!=2048||rank!=128||
-       !(ptx||async||s2g8||s2g4||s3g4||sm64s2||sm64s3||sm128s2||sm64k32||b3k64||b3k32||fixed||fixedB3||single||singleB3||large2||large2fold||large3fold||wideCompact||wideLarge||streamB||wideEarly||early2||early3||foldScratch||n256)||(ptx&&kb!=32&&kb!=64)) {
+       !(ptx||async||s2g8||s2g4||s3g4||sm64s2||sm64s3||sm128s2||sm64k32||b3k64||b3k32||fixed||fixedB3||single||singleB3||large2||large2fold||large3fold||wideCompact||wideLarge||streamB||wideEarly||early2||early3||foldScratch||n256||foldIssue||cacheA)||(ptx&&kb!=32&&kb!=64)) {
         fprintf(stderr,"Expected M,N positive multiples of 256 (M<=8192,N<=65536), K=2048 rank=128; variant ptx [32|64], async, ampere-s[2|3]-g[4|8] or sm86-m{64n128|128n64}-s{2|3}-k{32|64}.\n");
         return 2;
     }
@@ -86,6 +87,8 @@ int main(int argc,char** argv) {
     } else if(wideLarge) { CK((launch<4,2,4,4,64,3,8,1,true,true>(a,bn,actual,m,n,k,rank)));
     } else if(foldScratch) { CK((launch<4,2,4,4,64,3,8,1,true,true,false,false,true>(a,bn,actual,m,n,k,rank)));
     } else if(n256) { CK((launch<2,4,4,4,64,3,8,1,true,true>(a,bn,actual,m,n,k,rank)));
+    } else if(foldIssue) { CK((launch<4,2,4,4,64,3,8,1,true,true,false,false,false,true>(a,bn,actual,m,n,k,rank)));
+    } else if(cacheA) { CK((launch<4,2,4,4,64,3,8,1,true,true,false,false,false,false,true>(a,bn,actual,m,n,k,rank)));
     } else if(streamB) { CK((launch<4,2,4,4,64,3,8,1,true,true,false,true>(a,bn,actual,m,n,k,rank)));
     } else if(wideEarly) { CK((launch<4,2,4,4,64,3,8,1,true,true,true,false>(a,bn,actual,m,n,k,rank)));
     } else if(early2) { CK((launch<4,4,4,2,64,2,8,1,true,true,true>(a,bn,actual,m,n,k,rank)));

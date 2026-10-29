@@ -1075,8 +1075,18 @@ __device__ __forceinline__ void mmaS8(uint32_t d[4], const uint32_t a[4],
  * Requires B in n-major order (applyNoiseBt). Launch with
  * kWarpsM*kWarpsN*32 threads and grid (n/kBlockN, m/kBlockM).
  */
+// Opt-in cache experiment; fixed 16-byte aligned input and shared rows.
+__device__ __forceinline__ void pearlCopyCa16(void *dst, const void *src) {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+    const uint32_t shared = static_cast<uint32_t>(__cvta_generic_to_shared(dst));
+    asm volatile("cp.async.ca.shared.global [%0], [%1], 16;" :: "r"(shared), "l"(src) : "memory");
+#else
+    (void)dst; (void)src;
+#endif
+}
+
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false, bool kFoldScratchP = false>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false, bool kFoldScratchP = false, bool kInterleaveFoldP = false, bool kCacheAP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
@@ -1103,6 +1113,8 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
     constexpr int kThreads = kWarpsM * kWarpsN * 32;
     static_assert(!kFoldScratchP || (kMiningP && kSingleFoldP), "Scratch folds require fixed single-slot mining");
     static_assert(!kFoldScratchP || kWarpsM*kWarpsN*kTilesM*kTilesN*kTranscriptU32 <= kStagesP*kBlockM*4, "A padding must hold every transcript word");
+    static_assert(!kInterleaveFoldP || (kMiningP && kSingleFoldP && !kFoldScratchP && !kStreamBP), "Interleaved fold requires the fixed nonstream register path");
+    static_assert(!kCacheAP || kMiningP, "Cache experiment is mining-only");
     // Stages are a parameter because depth and stage count trade against one
     // shared-memory budget: 128 of k will not fit three stages of padded
     // shared, but it fits two. L2 throughput sits at ~91% while DRAM is 21%,
@@ -1186,6 +1198,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
     int reduction = 0;
 
 // One 16-byte cp.async per chunk; kKBlock/16 chunks cover a row's slice.
+#define OM_PTX_COPY(dst, src) { if constexpr (kCacheAP) pearlCopyCa16((dst),(src)); else __pipeline_memcpy_async((dst),(src),16); }
 #define OM_PTX_ISSUE(blk, stage)                                               \
     {                                                                          \
         constexpr int kChunks = kKBlock / 16;                                  \
@@ -1193,14 +1206,14 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
         for (int i = threadIdx.x; i < kBlockM * kChunks; i += kThreads) {      \
             const int row = i / kChunks;                                       \
             const int off = (i % kChunks) * 16;                                \
-            __pipeline_memcpy_async(OM_SA(stage) + row * kAStride + off,       \
-                                    &A[(size_t)(rowBase + row) * k + kk_ + off], 16); \
+            OM_PTX_COPY(OM_SA(stage) + row * kAStride + off,                  \
+                        &A[(size_t)(rowBase + row) * k + kk_ + off]);           \
         }                                                                      \
         for (int i = threadIdx.x; i < kBlockN * kChunks; i += kThreads) {      \
             const int col = i / kChunks;                                       \
             const int off = (i % kChunks) * 16;                                \
-            __pipeline_memcpy_async(OM_SB(stage) + col * kBStride + off,       \
-                                    &Bn[(size_t)(colBase + col) * k + kk_ + off], 16); \
+            OM_PTX_COPY(OM_SB(stage) + col * kBStride + off,                  \
+                        &Bn[(size_t)(colBase + col) * k + kk_ + off]);          \
         }                                                                      \
         __pipeline_commit();                                                   \
     }
@@ -1262,6 +1275,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 #pragma unroll
         for (int sub = 0; sub < kSub; sub++) {
         const int kOffSub = sub * kK32;
+        const bool foldNow = sinceFold + 1 == stepsPerRank;
         uint32_t aReg[kTilesM][4];
 #pragma unroll
         for (int i = 0; i < kTilesM; i++) {
@@ -1308,6 +1322,26 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
             bReg[j][0][1] = t[2];
             bReg[j][1][1] = t[3];
         }
+        if constexpr (kInterleaveFoldP) {
+#pragma unroll
+            for (int i = 0; i < kTilesM; i++) {
+#pragma unroll
+                for (int j = 0; j < kTilesN; j++) {
+#pragma unroll
+                    for (int h = 0; h < 2; h++)
+                        mmaS8(acc[i][j][h], aReg[i], bReg[j][h], acc[i][j][h]);
+                    // Read this tile before its next rank update, while other
+                    // independent tile MMA can overlap its XOR reduction.
+                    if (foldNow) {
+                        const uint32_t v = warpXor(
+                            xor3(xor3(acc[i][j][0][0],acc[i][j][0][1],acc[i][j][0][2]),
+                                 xor3(acc[i][j][0][3],acc[i][j][1][0],acc[i][j][1][1]),
+                                 acc[i][j][1][2]^acc[i][j][1][3]));
+                        if (lane == reduction) slot[i][j] = v;
+                    }
+                }
+            }
+        } else {
 #pragma unroll
         for (int i = 0; i < kTilesM; i++)
 #pragma unroll
@@ -1315,11 +1349,13 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 #pragma unroll
                 for (int h = 0; h < 2; h++)
                     mmaS8(acc[i][j][h], aReg[i], bReg[j][h], acc[i][j][h]);
+        }
 
         }
 
         if (++sinceFold == stepsPerRank) {
             sinceFold = 0;
+            if constexpr (!kInterleaveFoldP) {
 #pragma unroll
             for (int i = 0; i < kTilesM; i++) {
 #pragma unroll
@@ -1364,6 +1400,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
                     }
                 }
             }
+            } // original post-MMA fold schedule
             ++reduction;
         }
         }   // sub
@@ -1379,6 +1416,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
         if (++issueStage == kStages) issueStage = 0;
     }
 #undef OM_PTX_ISSUE
+#undef OM_PTX_COPY
 #undef OM_SA
 #undef OM_SB
 

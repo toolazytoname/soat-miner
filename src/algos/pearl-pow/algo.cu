@@ -168,7 +168,7 @@ void launchTiledAsync(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
  * cudaFuncSetAttribute is idempotent and cheap; doing it on every launch
  * would not be, hence the flag.
  */
-template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false, bool SINGLE = false, bool EARLY = false, bool STREAM = false, bool SCRATCH = false>
+template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false, bool SINGLE = false, bool EARLY = false, bool STREAM = false, bool SCRATCH = false, bool FOLD = false, bool CACHEA = false>
 void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
                const int8_t *b, uint32_t *t, int m, int n, int k, int rank) {
     constexpr int kStages = ST;
@@ -183,12 +183,12 @@ void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
     static thread_local int optedDevice = -1;
     if (optedDevice != device) {
         const cudaError_t error = cudaFuncSetAttribute(
-            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE, EARLY, STREAM, SCRATCH>,
+            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE, EARLY, STREAM, SCRATCH, FOLD, CACHEA>,
             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
         if (error != cudaSuccess) return;
         optedDevice = device;
     }
-    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE, EARLY, STREAM, SCRATCH>
+    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE, EARLY, STREAM, SCRATCH, FOLD, CACHEA>
         <<<grid, threads, smem, s>>>(a, b, nullptr, t, m, n, k, rank, false);
 }
 
@@ -268,6 +268,8 @@ const TileConfig kTileConfigs[] = {
     // Unproven: A-padding fold scratch and transposed block geometry.
     {"ampere warpwide scratch large s3 fold k64", 256, 128, 256, true, 86, 64, &launchPtx<4, 2, 4, 4, 64, 3, 8, 1, true, true, false, false, true>},
     {"ampere warpwide n256 s3 fold k64", 128, 256, 256, true, 86, 64, &launchPtx<2, 4, 4, 4, 64, 3, 8, 1, true, true>},
+    {"ampere warpwide foldissue large s3 k64", 256, 128, 256, true, 86, 64, &launchPtx<4, 2, 4, 4, 64, 3, 8, 1, true, true, false, false, false, true>},
+    {"ampere warpwide cachea large s3 fold k64", 256, 128, 256, true, 86, 64, &launchPtx<4, 2, 4, 4, 64, 3, 8, 1, true, true, false, false, false, false, true>},
     // Opt-in only: compare fragment lifetime and early copy at identical geometry.
     {"ampere warpwide streamb large s3 fold k64", 256, 128, 256, true, 86, 64, &launchPtx<4, 2, 4, 4, 64, 3, 8, 1, true, true, false, true>},
     {"ampere warpwide early large s3 fold k64", 256, 128, 256, true, 86, 64, &launchPtx<4, 2, 4, 4, 64, 3, 8, 1, true, true, true, false>},
