@@ -4,9 +4,12 @@ param(
     [string]$VsRoot = 'D:\Apps\VSBuildTools2022',
     [string]$BuildDirectory = '',
     [switch]$GpuTests,
-    [switch]$AmpereCandidates
+    [switch]$AmpereCandidates,
+    [switch]$KernelIteration
 )
 $ErrorActionPreference = 'Stop'
+if ($KernelIteration -and -not $GpuTests) { throw 'KernelIteration requires GpuTests so the correctness targets exist.' }
+$targetOption = if ($KernelIteration) { '--target soat-miner test-pearl-mining-shape test-pearl-kernel-resources' } else { '' }
 $repoRoot = Split-Path $PSScriptRoot -Parent
 if (-not $BuildDirectory) { $BuildDirectory = Join-Path $repoRoot 'build\prl3090-baseline' }
 $vcvars = Join-Path $VsRoot 'VC\Auxiliary\Build\vcvars64.bat'
@@ -31,7 +34,7 @@ if errorlevel 1 exit /b 1
 set "PATH=$CudaRoot\bin;%PATH%"
 "$cmake" -S "$repoRoot" -B "$BuildDirectory" -G Ninja -DCMAKE_MAKE_PROGRAM="$ninja" -DCMAKE_CUDA_COMPILER="$nvcc" -DCUDAToolkit_ROOT="$CudaRoot" -DCMAKE_CUDA_ARCHITECTURES=86-real -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DSOAT_PEARL_ONLY_BUILD=ON -DSOAT_ENABLE_PEARL_GPU_TESTS=$gpuOption -DSOAT_EXPERIMENTAL_SM86_TILES=$ampereOption
 if errorlevel 1 exit /b 1
-"$cmake" --build "$BuildDirectory" --parallel 1
+"$cmake" --build "$BuildDirectory" --parallel 1 $targetOption
 exit /b %ERRORLEVEL%
 "@
 $commandFile = Join-Path $BuildDirectory 'build-prl3090.cmd'

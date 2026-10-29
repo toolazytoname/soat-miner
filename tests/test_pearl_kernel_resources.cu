@@ -35,5 +35,7 @@ int main() {
     if((report<4,4,4,2,64,2,8,1,true,false>("sm86-large-s2-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<4,4,4,2,64,2,8,1,true,true>("sm86-large-s2-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<4,4,4,2,64,3,8,1,true,true>("sm86-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
+    if((report<2,2,4,4,64,2,8,1,true,true>("sm86-warpwide-compact-s2-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
+    if((report<4,2,4,4,64,3,8,1,true,true>("sm86-warpwide-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
     return 0;
 }

@@ -258,6 +258,11 @@ const TileConfig kTileConfigs[] = {
     {"ampere large s2 k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, false>},
     {"ampere large s2 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, true>},
     {"ampere large s3 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 3, 8, 1, true, true>},
+    // Iteration hypothesis: more independent accumulators per warp can reduce
+    // scheduling overhead. Register pressure and resident warps may worsen;
+    // both variants stay experimental until full-buffer and wall-rate checks.
+    {"ampere warpwide compact s2 fold k64", 128, 128, 128, true, 86, 64, &launchPtx<2, 2, 4, 4, 64, 2, 8, 1, true, true>},
+    {"ampere warpwide large s3 fold k64", 256, 128, 256, true, 86, 64, &launchPtx<4, 2, 4, 4, 64, 3, 8, 1, true, true>},
     {"ampere fixed singlefold m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true, true>},
     {"ampere fixed m64n128 b3 k64", 64, 128, 256, true, 86, 64, &launchPtx<2, 4, 2, 2, 64, 2, 8, 3, true>},
     {"ampere s2 g4 k64", 128, 128, 256, true, 86, 64, &launchPtx<2, 4, 4, 2, 64, 2, 4>},

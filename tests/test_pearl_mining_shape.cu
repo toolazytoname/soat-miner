@@ -40,8 +40,9 @@ int main(int argc,char** argv) {
     const bool fixed=!strcmp(which,"sm86-fixed-s2-g8-k64"),fixedB3=!strcmp(which,"sm86-fixed-m64n128-b3-k64");
     const bool single=!strcmp(which,"sm86-singlefold-s2-g8-k64"),singleB3=!strcmp(which,"sm86-singlefold-m64n128-b3-k64");
     const bool large2=!strcmp(which,"sm86-large-s2-k64"),large2fold=!strcmp(which,"sm86-large-s2-fold-k64"),large3fold=!strcmp(which,"sm86-large-s3-fold-k64");
+    const bool wideCompact=!strcmp(which,"sm86-warpwide-compact-s2-fold-k64"),wideLarge=!strcmp(which,"sm86-warpwide-large-s3-fold-k64");
     if(m<=0||n<=0||m>8192||n>65536||m%256||n%256||k!=2048||rank!=128||
-       !(ptx||async||s2g8||s2g4||s3g4||sm64s2||sm64s3||sm128s2||sm64k32||b3k64||b3k32||fixed||fixedB3||single||singleB3||large2||large2fold||large3fold)||(ptx&&kb!=32&&kb!=64)) {
+       !(ptx||async||s2g8||s2g4||s3g4||sm64s2||sm64s3||sm128s2||sm64k32||b3k64||b3k32||fixed||fixedB3||single||singleB3||large2||large2fold||large3fold||wideCompact||wideLarge)||(ptx&&kb!=32&&kb!=64)) {
         fprintf(stderr,"Expected M,N positive multiples of 256 (M<=8192,N<=65536), K=2048 rank=128; variant ptx [32|64], async, ampere-s[2|3]-g[4|8] or sm86-m{64n128|128n64}-s{2|3}-k{32|64}.\n");
         return 2;
     }
@@ -78,6 +79,8 @@ int main(int argc,char** argv) {
     } else if(large2) { CK((launch<4,4,4,2,64,2,8,1,true,false>(a,bn,actual,m,n,k,rank)));
     } else if(large2fold) { CK((launch<4,4,4,2,64,2,8,1,true,true>(a,bn,actual,m,n,k,rank)));
     } else if(large3fold) { CK((launch<4,4,4,2,64,3,8,1,true,true>(a,bn,actual,m,n,k,rank)));
+    } else if(wideCompact) { CK((launch<2,2,4,4,64,2,8,1,true,true>(a,bn,actual,m,n,k,rank)));
+    } else if(wideLarge) { CK((launch<4,2,4,4,64,3,8,1,true,true>(a,bn,actual,m,n,k,rank)));
     } else if(kb==64) { CK((launch<4,4,4,2,64>(a,bn,actual,m,n,k,rank)));
     } else { CK((launch<4,4,4,2,32>(a,bn,actual,m,n,k,rank))); }
     CK(cudaDeviceSynchronize());
