@@ -168,7 +168,7 @@ void launchTiledAsync(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
  * cudaFuncSetAttribute is idempotent and cheap; doing it on every launch
  * would not be, hence the flag.
  */
-template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false, bool SINGLE = false>
+template <int WM, int WN, int TM, int TN, int KKB, int ST = 3, int GM = 8, int MIN = 1, bool FIX = false, bool SINGLE = false, bool EARLY = false>
 void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
                const int8_t *b, uint32_t *t, int m, int n, int k, int rank) {
     constexpr int kStages = ST;
@@ -183,12 +183,12 @@ void launchPtx(dim3 grid, int threads, cudaStream_t s, const int8_t *a,
     static thread_local int optedDevice = -1;
     if (optedDevice != device) {
         const cudaError_t error = cudaFuncSetAttribute(
-            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE>,
+            noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE, EARLY>,
             cudaFuncAttributeMaxDynamicSharedMemorySize, smem);
         if (error != cudaSuccess) return;
         optedDevice = device;
     }
-    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE>
+    noisyGemmPtx<WM, WN, TM, TN, KKB, ST, GM, MIN, FIX, SINGLE, EARLY>
         <<<grid, threads, smem, s>>>(a, b, nullptr, t, m, n, k, rank, false);
 }
 
@@ -258,6 +258,8 @@ const TileConfig kTileConfigs[] = {
     {"ampere large s2 k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, false>},
     {"ampere large s2 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, true>},
     {"ampere large s3 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 3, 8, 1, true, true>},
+    {"ampere early large s2 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 2, 8, 1, true, true, true>},
+    {"ampere early large s3 fold k64", 256, 128, 512, true, 86, 64, &launchPtx<4, 4, 4, 2, 64, 3, 8, 1, true, true, true>},
     // Iteration hypothesis: more independent accumulators per warp can reduce
     // scheduling overhead. Register pressure and resident warps may worsen;
     // both variants stay experimental until full-buffer and wall-rate checks.

@@ -43,6 +43,30 @@ The identical binary was copied to the versioned app directory, SHA-256 `3151d5f
 
 The pool sent its first job after about 58 seconds; four startup no-job warnings are retained. The TLS receipt also records one connection reset at trial shutdown. This is a compatibility test, not a stable pool-rate or profitability measurement. Full raw receipts remain in the Windows experiment directory.
 
+## Rejected early-copy follow-up
+
+The next opt-in prototype issued future `cp.async` groups after the recycled-stage barrier and before current-stage arithmetic, retaining the original tail empty groups. Both 512-thread large-block S2/S3 forms, plus the current warpwide control, passed all nine full-buffer comparisons. Resource inspection was the tenth successful guarded case. Both new forms use 122 registers/thread, zero local bytes and one theoretical CTA per SM.
+
+One predeclared warmed 220 W screen compared these replacements against the current daily 256-thread warpwide tile:
+
+| Case | T MAC/s | GPU W | Thermal window steady |
+| --- | ---: | ---: | --- |
+| A0 warpwide control | 54.001626 | 219.813 | True |
+| C1 early large S2 | 50.579573 | 219.776 | True |
+| A1 warpwide control | 53.272989 | 219.774 | True |
+| C2 early large S3 | 50.475663 | 219.772 | True |
+| A2 warpwide control | 53.586291 | 219.797 | True |
+
+Control spread was 1.367741%, within the 2% gate. C1/C2 throughput was respectively **5.700761% / 5.528724% lower** than their bracketing controls; GPU efficiency was 5.693189% / 5.523039% lower. Neither is promoted or sent to long confirmation. The already confirmed and pool-accepted warpwide app remains selected.
+
+These compare different warp layouts as potential daily replacements. They do not isolate the causal effect of early copies or rule out all other pipeline arrangements. The original pipeline remains the default template path; the experimental early-copy path is opt-in. Full Windows evidence: `D:\AI\Playgrounds\soat-miner\20261029-prefetch-iteration`.
+
+## Counter snapshot for the selected warpwide kernel
+
+A separate bounded diagnostic of the exact confirmed binary completed, with owned processes exited and original power restored. Nsight Compute used `--clock-control none` and `--cache-control none`; the kernel replay reported 1.729401 GHz, 63.005915% Tensor-pipe activity, 64.073964% L2 throughput and zero recorded shared-memory bank conflicts. Per-issue-active stall ratios were math-pipe throttle 2.578153, wait 1.981476, long-scoreboard 0.371641 and barrier 0.230178.
+
+This snapshot supports investigating instruction scheduling and overlap before speculative bank-conflict fixes. It does not prove a unique bottleneck or remaining achievable percentage. Instrumented replay clocks/times differ from ordinary warmed 220 W mining, so neither the 6.014080 ms replay nor cross-profile clock differences replace the controlled throughput result. The full profiler report and selected metrics stay under the Windows follow-up directory.
+
 ## Commands
 
 Build the bounded target set on Windows:

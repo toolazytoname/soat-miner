@@ -1076,7 +1076,7 @@ __device__ __forceinline__ void mmaS8(uint32_t d[4], const uint32_t a[4],
  * kWarpsM*kWarpsN*32 threads and grid (n/kBlockN, m/kBlockM).
  */
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
@@ -1237,6 +1237,16 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
         __pipeline_wait_prior(kStages - 2);
         __syncthreads();
 
+        if constexpr (kEarlyPrefetchP) {
+            // The barrier retires readers of the recycled stage. Issue its
+            // next copy before current-stage arithmetic, overlapping compute
+            // even with only two shared stages. Keep the tail group depth.
+            if (blk + kStages - 1 < totalBlocks)
+                OM_PTX_ISSUE(blk + kStages - 1, issueStage)
+            else
+                __pipeline_commit();
+        }
+
         // One ldmatrix per fragment instead of four scalar loads. The lane
         // splits into which row-of-eight it addresses (r) and which of the
         // four 8x8 tiles it feeds (q); the tile index chooses the row half and
@@ -1327,10 +1337,12 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
         }
         }   // sub
 
-        if (blk + kStages - 1 < totalBlocks)
-            OM_PTX_ISSUE(blk + kStages - 1, issueStage)
-        else
-            __pipeline_commit();   // empty group, purely to hold the depth
+        if constexpr (!kEarlyPrefetchP) {
+            if (blk + kStages - 1 < totalBlocks)
+                OM_PTX_ISSUE(blk + kStages - 1, issueStage)
+            else
+                __pipeline_commit();   // empty group, purely to hold the depth
+        }
 
         if (++stage == kStages) stage = 0;
         if (++issueStage == kStages) issueStage = 0;
