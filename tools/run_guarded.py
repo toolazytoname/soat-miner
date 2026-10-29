@@ -77,22 +77,31 @@ def process_names():
 
 
 def gpu_processes():
+    # Vendor process paths can use the Windows legacy code page even under
+    # Python UTF-8 mode. Query ASCII PIDs only; Toolhelp supplies Unicode names.
     result = subprocess.run(['C:/Windows/System32/nvidia-smi.exe',
-                             '--query-compute-apps=pid,process_name', '--format=csv,noheader'],
-                            capture_output=True, text=True, timeout=8,
+                             '--query-compute-apps=pid', '--format=csv,noheader,nounits'],
+                            capture_output=True, timeout=8,
                             creationflags=subprocess.CREATE_NO_WINDOW)
     if result.returncode:
         raise RuntimeError('Cannot inspect other GPU processes')
-    processes = {}
-    for line in result.stdout.splitlines():
-        fields = line.split(',', 1)
-        if len(fields) == 2 and fields[0].strip().isdigit():
-            processes[int(fields[0].strip())] = Path(fields[1].strip()).name.lower()
-    if any(name.startswith('[') for name in processes.values()):
-        names = process_names()
-        processes = {pid: names.get(pid, name) if name.startswith('[') else name
-                     for pid, name in processes.items()}
-    return processes
+    try:
+        lines = result.stdout.decode('ascii').splitlines()
+        pids = set()
+        for line in lines:
+            value = line.strip()
+            if not value:
+                continue
+            if not value.isdecimal() or int(value) <= 0:
+                raise ValueError('Invalid PID')
+            pids.add(int(value))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise RuntimeError('Invalid GPU process PID output') from error
+    if not pids:
+        return {}
+    names = process_names()
+    # A PID disappearing during the snapshot remains conservative unknown work.
+    return {pid: names.get(pid, '[unresolved gpu process]') for pid in sorted(pids)}
 
 
 DESKTOP_PROCESSES = {'dwm.exe', 'explorer.exe', 'shellhost.exe', 'msedge.exe',
