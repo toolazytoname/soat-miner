@@ -128,7 +128,7 @@ Authoritative Windows receipts: `large-thermal-aba-summary.json`, the immutable 
 
 ## KRig certificate-policy diagnostic
 
-A bounded local diagnostic of the pinned KRig 1.5.12 binary completed TLS with an untrusted self-signed localhost certificate and sent 166 application bytes. No jobs were provided, no trust roots were changed, and the temporary test key was deleted. This probes certificate-chain rejection only; it does not independently test hostname policy. The vendor logged a certificate fingerprint, which is not proof that an untrusted chain was rejected.
+A bounded local diagnostic of the pinned KRig 1.5.12 binary completed TLS with an untrusted self-signed localhost certificate and sent 166 application bytes. No jobs were provided, no trust roots were changed, and the temporary test key was deleted. This probes certificate-chain rejection at localhost only; it does not independently test hostname policy or certificate handling for a recognized native Kryptex hostname. The vendor logged a certificate fingerprint, which is not proof that an untrusted chain was rejected.
 
 `tools/probe_krig_certificate_policy.py` reproduces the explicit guarded diagnostic and returns a nonzero policy result when an untrusted certificate is accepted. The own supervisor in the separate RainbowMiner repository now supplies the mandatory verified-TLS relay for its normal route. Raw `stratum+ssl` URL validation alone is not represented as certificate-policy verification. No Defender setting was changed.
 

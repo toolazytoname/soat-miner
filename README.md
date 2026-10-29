@@ -6,6 +6,8 @@ Current status and build instructions: [RTX 3090 experiment](docs/PRL3090.md). O
 
 [Open/closed real-pool observations](docs/PRL3090-KRIG-COMPARISON.md): open bracketing mean 50.84 T MAC/s; KRig 59.71 at the same 220 W cap. Strict quality checks were not all met. The open backend retains zero developer fee; the tested KRig localhost route charges 3%. The open fork remains selected for editable source and transparent fees.
 
+[Fast iteration workflow](docs/PRL3090-FAST-ITERATION.md) now screens verified kernel candidates before longer controlled confirmation. The first new large warpwide candidate showed a provisional +4.44% short-screen gain; production adoption requires controlled confirmation and actual pool acceptance.
+
 ---
 
 # SOAT Miner

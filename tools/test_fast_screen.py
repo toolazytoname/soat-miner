@@ -22,4 +22,12 @@ class FastScreenTests(unittest.TestCase):
         r=review(cases);self.assertIsNone(r["next_candidate"])
     def test_material_gain_is_only_referred_for_long_confirmation(self):
         r=review(self.cases([50,52,50,49,50]));self.assertEqual(r["next_candidate"],"C1");self.assertFalse(r["production_config_changed"])
+    def test_confirmation_requires_steady_bracketing_controls(self):
+        cases=self.cases([50,53,50]);cases[0]["name"]="A1";cases[1]["name"]="B";cases[2]["name"]="A2"
+        r=review(cases,"confirm");self.assertTrue(r["candidate_confirmed_improvement"]);self.assertAlmostEqual(r["confirmed_rate_gain_percent"],6)
+        cases[2]["tail"]["time_weighted_Tmac_s"]=55
+        r=review(cases,"confirm");self.assertFalse(r["candidate_confirmed_improvement"]);self.assertIsNone(r["confirmed_rate_gain_percent"])
+    def test_confirmation_rejects_a_thermal_excursion(self):
+        cases=self.cases([50,60,50]);cases[0]["name"]="A1";cases[1]["name"]="B";cases[2]["name"]="A2";cases[1]["tail"]["steady"]=False
+        r=review(cases,"confirm");self.assertFalse(r["comparison_valid"]);self.assertIsNone(r["confirmed_gpu_efficiency_gain_percent"])
 if __name__=="__main__":unittest.main(verbosity=2)

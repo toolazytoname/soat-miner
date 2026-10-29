@@ -14,9 +14,12 @@ def digest(path):
     with pathlib.Path(path).open("rb") as f:return hashlib.file_digest(f,"sha256").hexdigest()
 def validate(plan):
     if plan.get("power_watts")!=220 or not 180<=plan.get("warmup_seconds",0)<=360:raise ValueError("Expected 220 W and bounded 180..360 second warmup")
-    if not 60<=plan.get("case_seconds",0)<=120:raise ValueError("Expected 60..120 seconds per screen case")
-    cases=plan["cases"]
-    if [c["name"] for c in cases]!=["A0","C1","A1","C2","A2"]:raise ValueError("Expected baseline/candidate/baseline/candidate/baseline")
+    mode=plan.get("mode","screen")
+    if mode not in ("screen","confirm"):raise ValueError("Unknown measurement mode")
+    low,high=(240,600) if mode=="confirm" else (60,120)
+    if not low<=plan.get("case_seconds",0)<=high:raise ValueError("Case duration outside the selected measurement mode")
+    cases=plan["cases"];roles=["A1","B","A2"] if mode=="confirm" else ["A0","C1","A1","C2","A2"]
+    if [c["name"] for c in cases]!=roles:raise ValueError("Expected bracketing baseline controls for the selected mode")
     binary=pathlib.Path(plan["executable"])
     if not binary.is_absolute() or not binary.resolve().is_relative_to((ROOT/"build").resolve()) or binary.name!="soat-miner.exe":raise ValueError("Expected own built miner")
     if digest(binary)!=plan["executable_sha256"]:raise ValueError("Miner changed after planning")
@@ -25,14 +28,15 @@ def validate(plan):
     tested={c["name"]:c for c in proof["cases"]}
     for c in cases:
         if not c["tile"].startswith("="):raise ValueError("Exact tile selection is required")
-        if c["name"].startswith("C"):
+        if c["name"].startswith("C") or c["name"]=="B":
             for m,n in [(256,768),(1024,1024),(4096,65536)]:
                 key=f"{m}x{n}-{c['oracle_variant']}"
                 if key not in tested or tested[key]["binary_sha256"]!=digest(binary.parent/"test-pearl-mining-shape.exe"):raise ValueError("Current verifier did not check all shapes")
-    if len({cases[i]["tile"] for i in [0,2,4]})!=1:raise ValueError("Baseline controls must be identical")
+    control_indices=[0,2] if mode=="confirm" else [0,2,4]
+    if len({cases[i]["tile"] for i in control_indices})!=1:raise ValueError("Baseline controls must be identical")
     return cases
 
-def summarize(dest):
+def summarize(dest,seconds=30):
     g=load(dest/"guard-status.json")
     if g.get("stop_reason")!="duration-complete" or not g.get("power_restored"):raise ValueError("Guard or power restoration failed")
     stats=[]
@@ -52,10 +56,18 @@ def summarize(dest):
         while index+1<len(stats) and stats[index+1][0]<=epoch:index+=1
         if epoch-stats[index][0]>5:raise ValueError("Missing fresh benchmark statistics")
         rows.append({"Epoch":epoch,"ReportedRate":stats[index][1],"Gpu":sample})
-    tail=weighted_window(rows,30)
-    return {"tail":tail,"guard":g,"measurement":"Final 30 seconds covered by guard telemetry, with latest prior source statistic <=5 seconds old"}
+    tail=weighted_window(rows,seconds)
+    return {"tail":tail,"guard":g,"measurement":f"Final {seconds} seconds covered by guard telemetry, with latest prior source statistic <=5 seconds old"}
 def load_lines(path):return [json.loads(line) for line in path.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
-def review(cases):
+def review(cases,mode="screen"):
+    if mode=="confirm":
+        if [c["name"] for c in cases]!=["A1","B","A2"]:raise ValueError("Expected complete A/B/A")
+        a1,b,a2=[c["tail"] for c in cases];base=(a1["time_weighted_Tmac_s"]+a2["time_weighted_Tmac_s"])/2
+        if min(base,a1["time_weighted_Tmac_s"],a2["time_weighted_Tmac_s"])<=0:raise ValueError("Baseline did not compute")
+        drift=100*abs(a2["time_weighted_Tmac_s"]/a1["time_weighted_Tmac_s"]-1);gain=100*(b["time_weighted_Tmac_s"]/base-1)
+        eff=(a1["gpu_Tmac_per_joule"]+a2["gpu_Tmac_per_joule"])/2;egain=100*(b["gpu_Tmac_per_joule"]/eff-1)
+        valid=drift<=2 and all(c["tail"]["steady"] for c in cases)
+        return {"comparison_valid":valid,"control_drift_percent":drift,"observed_rate_gain_percent":gain,"observed_gpu_efficiency_gain_percent":egain,"confirmed_rate_gain_percent":gain if valid else None,"confirmed_gpu_efficiency_gain_percent":egain if valid else None,"candidate_confirmed_improvement":valid and gain>=3 and egain>=3,"production_config_changed":False,"scope":"Warmed controlled synthetic full-attempt A/B/A. Each fixed final 180-second window must pass <=2 C range and A-control drift <=2%. Real-pool acceptance remains a separate deployment gate."}
     controls=[cases[i]["tail"]["time_weighted_Tmac_s"] for i in [0,2,4]]
     if min(controls)<=0:raise ValueError("Baseline did not compute")
     drift=100*(max(controls)/min(controls)-1);control_ok=drift<=2 and all(cases[i]["tail"]["steady"] for i in [0,2,4]);candidates=[]
@@ -107,11 +119,12 @@ def main():
                     else:os.environ[k]=v
                 if thread.is_alive():raise RuntimeError("Pool monitor did not finish; no next case")
             if code or stop_reason:raise RuntimeError("Screen stopped: "+str(stop_reason or code))
-            result=summarize(dest);result.update(name=c["name"],tile=c["tile"])
+            seconds=180 if plan.get("mode")=="confirm" and c["name"]!="warmup" else 30
+            result=summarize(dest,seconds);result.update(name=c["name"],tile=c["tile"])
             if c["name"]=="warmup":state["warmup"]=result
             else:state["cases"].append(result)
             save(target,state);time.sleep(2)
-        state.update(phase="complete",review=review(state["cases"]))
+        state.update(phase="complete",review=review(state["cases"],plan.get("mode","screen")))
     except BaseException as exc:state.update(phase="stopped",error=str(exc),traceback=traceback.format_exc())
     finally:
         state.update(ended_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),production_config_unchanged=digest(CONFIG)==config_sha);save(target,state)
