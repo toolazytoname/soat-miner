@@ -151,6 +151,32 @@ def manual_cancel_token():
         stat=path.stat();return (stat.st_mtime_ns,stat.st_size)
     except FileNotFoundError:return None
 
+def wait_for_idle_gpu(gpu, out, initial_cancel):
+    """Wait at most 30 seconds before any child or power change."""
+    deadline = time.monotonic() + 30
+    while True:
+        if (out / 'stop.request').exists() or manual_cancel_token() != initial_cancel:
+            raise RuntimeError('Manual stop requested during startup; no process or power change made')
+        before = gpu.read()
+        unsafe = thermal_reason(before)
+        if unsafe:
+            raise RuntimeError('Unsafe GPU temperature: ' + unsafe + '; no process started')
+        power_limit = before.get('PowerLimit')
+        if (isinstance(power_limit, bool) or not isinstance(power_limit, (int, float))
+                or not math.isfinite(power_limit) or power_limit <= 0):
+            raise RuntimeError('Invalid original GPU power limit; no process started')
+        processes = gpu_processes()
+        other = {pid: name for pid, name in processes.items()
+                 if pid != os.getpid() and name not in DESKTOP_PROCESSES}
+        if other:
+            raise RuntimeError('Another GPU application is present; no process or power change made: ' + str(other))
+        if not gpu_busy_before_start(before, utilization_limit=10, memory_limit=2048):
+            return before, processes
+        if time.monotonic() >= deadline:
+            raise RuntimeError('GPU is busy; no process or power change made; last sample: ' + json.dumps(before))
+        time.sleep(1)
+
+
 def run(args):
     if os.name != 'nt':
         raise RuntimeError('This guard is for the single-GPU Windows workstation')
@@ -179,17 +205,7 @@ def _run_owned(args):
     if (out / 'stop.request').exists():
         raise RuntimeError('Stop request already exists; use a new run directory')
     gpu = Gpu()
-    before = gpu.read()
-    if gpu_busy_before_start(before, utilization_limit=10, memory_limit=2048):
-        raise RuntimeError('GPU is busy; no process or power change made')
-    unsafe=thermal_reason(before)
-    if unsafe:
-        raise RuntimeError('Unsafe GPU temperature: '+unsafe+'; no process started')
-    initial_gpu_processes = gpu_processes()
-    other_initial = {pid: name for pid, name in initial_gpu_processes.items()
-                     if pid != os.getpid() and name not in DESKTOP_PROCESSES}
-    if other_initial:
-        raise RuntimeError('Another GPU application is present; no process or power change made: '+str(other_initial))
+    before, initial_gpu_processes = wait_for_idle_gpu(gpu, out, initial_cancel)
     existing_gpu_pids = set(initial_gpu_processes)
     original_power = before['PowerLimit']
     state = {'status': 'preparing', 'started_at': datetime.now(timezone.utc).isoformat(),

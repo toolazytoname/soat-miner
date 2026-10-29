@@ -1076,7 +1076,7 @@ __device__ __forceinline__ void mmaS8(uint32_t d[4], const uint32_t a[4],
  * kWarpsM*kWarpsN*32 threads and grid (n/kBlockN, m/kBlockM).
  */
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
@@ -1260,12 +1260,31 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 #pragma unroll
         for (int sub = 0; sub < kSub; sub++) {
         const int kOffSub = sub * kK32;
-        uint32_t aReg[kTilesM][4], bReg[kTilesN][2][2];
+        uint32_t aReg[kTilesM][4];
 #pragma unroll
         for (int i = 0; i < kTilesM; i++) {
             const int row = (warpM * kTilesM + i) * kHashTile + ldRow;
             ldmatrixX4(aReg[i], OM_SA(stage) + row * kAStride + kOffSub + ldOff);
         }
+        if constexpr (kStreamBP) {
+            // Experimental fragment schedule: keep one B fragment live,
+            // then update all independent A accumulators. Same ordered K
+            // reductions and transcript fold; generic schedule stays default.
+#pragma unroll
+            for (int j = 0; j < kTilesN; j++) {
+                const int col = (warpN * kTilesN + j) * kHashTile + ldRow;
+                uint32_t t[4], bFragment[2][2];
+                ldmatrixX4(t, OM_SB(stage) + col * kBStride + kOffSub + ldOff);
+                bFragment[0][0] = t[0]; bFragment[1][0] = t[1];
+                bFragment[0][1] = t[2]; bFragment[1][1] = t[3];
+#pragma unroll
+                for (int i = 0; i < kTilesM; i++)
+#pragma unroll
+                    for (int h = 0; h < 2; h++)
+                        mmaS8(acc[i][j][h], aReg[i], bFragment[h], acc[i][j][h]);
+            }
+        } else {
+            uint32_t bReg[kTilesN][2][2];
 #pragma unroll
         for (int j = 0; j < kTilesN; j++) {
             // B is n-major, so its "rows" are columns of B and the same
@@ -1294,6 +1313,8 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 #pragma unroll
                 for (int h = 0; h < 2; h++)
                     mmaS8(acc[i][j][h], aReg[i], bReg[j][h], acc[i][j][h]);
+
+        }
 
         if (++sinceFold == stepsPerRank) {
             sinceFold = 0;
