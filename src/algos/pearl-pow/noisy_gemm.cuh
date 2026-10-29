@@ -1085,8 +1085,14 @@ __device__ __forceinline__ void pearlCopyCa16(void *dst, const void *src) {
 #endif
 }
 
+__device__ __forceinline__ void pearlFixedTileFold(const uint32_t (&a)[2][4], uint32_t &slot, int lane, int reduction) {
+    const uint32_t v=warpXor(xor3(xor3(a[0][0],a[0][1],a[0][2]),
+                                 xor3(a[0][3],a[1][0],a[1][1]),a[1][2]^a[1][3]));
+    if(lane==reduction) slot=v;
+}
+
 template <int kWarpsM, int kWarpsN, int kTilesM, int kTilesN, int kKBlock = 32,
-          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false, bool kFoldScratchP = false, bool kInterleaveFoldP = false, bool kCacheAP = false>
+          int kStagesP = 3, int kGroupMP = 8, int kMinBlocksP = 1, bool kMiningP = false, bool kSingleFoldP = false, bool kEarlyPrefetchP = false, bool kStreamBP = false, bool kFoldScratchP = false, bool kInterleaveFoldP = false, bool kCacheAP = false, bool kDeferFoldP = false, bool kUnrollCopyP = false>
 // Dynamic shared costs address registers that a static array did not: this
 // went 110 -> 154 registers on the refactor, and 512 threads x 154 exceeds the
 // 65536-register file, so the 16-warp configurations simply stopped launching.
@@ -1115,6 +1121,8 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
     static_assert(!kFoldScratchP || kWarpsM*kWarpsN*kTilesM*kTilesN*kTranscriptU32 <= kStagesP*kBlockM*4, "A padding must hold every transcript word");
     static_assert(!kInterleaveFoldP || (kMiningP && kSingleFoldP && !kFoldScratchP && !kStreamBP), "Interleaved fold requires the fixed nonstream register path");
     static_assert(!kCacheAP || kMiningP, "Cache experiment is mining-only");
+    static_assert(!kDeferFoldP || (kMiningP && kSingleFoldP && !kInterleaveFoldP && !kFoldScratchP && !kStreamBP && kThreads==256), "Deferred fold requires the fixed eight-warp register path");
+    static_assert(!kUnrollCopyP || (kMiningP && (kBlockM*(kKBlock/16))%kThreads==0 && (kBlockN*(kKBlock/16))%kThreads==0), "Unrolled copies require complete equal per-thread slices");
     // Stages are a parameter because depth and stage count trade against one
     // shared-memory budget: 128 of k will not fit three stages of padded
     // shared, but it fits two. L2 throughput sits at ~91% while DRAM is 21%,
@@ -1203,6 +1211,22 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
     {                                                                          \
         constexpr int kChunks = kKBlock / 16;                                  \
         const int kk_ = (blk) * kKBlock;                                       \
+        if constexpr (kUnrollCopyP) { \
+            _Pragma("unroll") \
+            for (unsigned copy=0; copy<kBlockM*kChunks/kThreads; ++copy) { \
+                const unsigned i=threadIdx.x+copy*kThreads; \
+                const unsigned row=i/kChunks, off=(i%kChunks)*16; \
+                OM_PTX_COPY(OM_SA(stage)+row*kAStride+off, \
+                            &A[(size_t)(rowBase+row)*k+kk_+off]); \
+            } \
+            _Pragma("unroll") \
+            for (unsigned copy=0; copy<kBlockN*kChunks/kThreads; ++copy) { \
+                const unsigned i=threadIdx.x+copy*kThreads; \
+                const unsigned col=i/kChunks, off=(i%kChunks)*16; \
+                OM_PTX_COPY(OM_SB(stage)+col*kBStride+off, \
+                            &Bn[(size_t)(colBase+col)*k+kk_+off]); \
+            } \
+        } else { \
         for (int i = threadIdx.x; i < kBlockM * kChunks; i += kThreads) {      \
             const int row = i / kChunks;                                       \
             const int off = (i % kChunks) * 16;                                \
@@ -1215,6 +1239,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
             OM_PTX_COPY(OM_SB(stage) + col * kBStride + off,                  \
                         &Bn[(size_t)(colBase + col) * k + kk_ + off]);          \
         }                                                                      \
+        } \
         __pipeline_commit();                                                   \
     }
 
@@ -1230,6 +1255,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
     int stage = 0;                       // step % kStages
     int issueStage = (kStages - 1) % kStages;
     int sinceFold = 0;                   // counts up to stepsPerRank
+    bool pendingFold = false;
     for (int blk = 0; blk < totalBlocks; blk++) {
         // The pipeline DRAINS at the tail, and the steady-state wait is wrong
         // there. No new commit is issued for the last kStages-1 steps, so by
@@ -1251,6 +1277,17 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
         // budget and it stopped launching at 512 threads.
         __pipeline_wait_prior(kStages - 2);
         __syncthreads();
+        if constexpr (kDeferFoldP) {
+            if (pendingFold) {
+#pragma unroll
+                for (int i=0;i<kTilesM;++i) {
+#pragma unroll
+                    for (int j=0;j<kTilesN;++j)
+                        pearlFixedTileFold(acc[i][j],slot[i][j],lane,reduction);
+                }
+                ++reduction; pendingFold=false;
+            }
+        }
 
         if constexpr (kEarlyPrefetchP) {
             // The barrier retires readers of the recycled stage. Issue its
@@ -1355,6 +1392,20 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 
         if (++sinceFold == stepsPerRank) {
             sinceFold = 0;
+            if constexpr (kDeferFoldP) {
+                // Split 0..3 and 4..7 warps: half reduce after the next
+                // staging barrier, before updating the old accumulators.
+                if (warp>=4) pendingFold=true;
+                else {
+#pragma unroll
+                for (int i=0;i<kTilesM;++i) {
+#pragma unroll
+                    for (int j=0;j<kTilesN;++j)
+                        pearlFixedTileFold(acc[i][j],slot[i][j],lane,reduction);
+                }
+                    ++reduction;
+                }
+            } else {
             if constexpr (!kInterleaveFoldP) {
 #pragma unroll
             for (int i = 0; i < kTilesM; i++) {
@@ -1402,6 +1453,7 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
             }
             } // original post-MMA fold schedule
             ++reduction;
+            } // original nondeferred rank boundary
         }
         }   // sub
 
@@ -1414,6 +1466,17 @@ __global__ __launch_bounds__(kWarpsM *kWarpsN * 32, kMinBlocksP) void noisyGemmP
 
         if (++stage == kStages) stage = 0;
         if (++issueStage == kStages) issueStage = 0;
+    }
+    if constexpr (kDeferFoldP) {
+        // The last rank has no next iteration: flush its deferred word15.
+        if (pendingFold) {
+#pragma unroll
+                for (int i=0;i<kTilesM;++i) {
+#pragma unroll
+                    for (int j=0;j<kTilesN;++j)
+                        pearlFixedTileFold(acc[i][j],slot[i][j],lane,reduction);
+                }
+        }
     }
 #undef OM_PTX_ISSUE
 #undef OM_PTX_COPY

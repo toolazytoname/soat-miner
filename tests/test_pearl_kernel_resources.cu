@@ -4,10 +4,10 @@
 #include "algos/pearl-pow/noisy_gemm.cuh"
 using namespace om::pearl;
 #define CK(x) do {cudaError_t e=(x);if(e!=cudaSuccess){fprintf(stderr,"CUDA %s at %d\n",cudaGetErrorString(e),__LINE__);return 1;}}while(0)
-template<int WM,int WN,int TM,int TN,int KB,int ST=3,int GM=8,int MIN=1,bool FIX=false,bool SINGLE=false,bool EARLY=false,bool STREAM=false,bool SCRATCH=false,bool FOLD=false,bool CACHEA=false>
+template<int WM,int WN,int TM,int TN,int KB,int ST=3,int GM=8,int MIN=1,bool FIX=false,bool SINGLE=false,bool EARLY=false,bool STREAM=false,bool SCRATCH=false,bool FOLD=false,bool CACHEA=false,bool DEFER=false,bool UNROLL=false>
 int report(const char* name,int maxThreads) {
     constexpr int threads=WM*WN*32,shared=ST*(WM*TM*16+WN*TN*16)*(KB+16);
-    auto kernel=noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE,EARLY,STREAM,SCRATCH,FOLD,CACHEA>;
+    auto kernel=noisyGemmPtx<WM,WN,TM,TN,KB,ST,GM,MIN,FIX,SINGLE,EARLY,STREAM,SCRATCH,FOLD,CACHEA,DEFER,UNROLL>;
     CK(cudaFuncSetAttribute(kernel,cudaFuncAttributeMaxDynamicSharedMemorySize,shared));
     cudaFuncAttributes a{};CK(cudaFuncGetAttributes(&a,kernel));
     int blocks=0;CK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&blocks,kernel,threads,shared));
@@ -43,6 +43,8 @@ int main() {
     if((report<2,4,4,4,64,3,8,1,true,true>("sm86-warpwide-n256-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<4,2,4,4,64,3,8,1,true,true,false,false,false,true>("sm86-warpwide-foldissue-large-s3-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<4,2,4,4,64,3,8,1,true,true,false,false,false,false,true>("sm86-warpwide-cachea-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
+    if((report<4,2,4,4,64,3,8,1,true,true,false,false,false,false,false,true>("sm86-warpwide-deferred-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
+    if((report<4,2,4,4,64,3,8,1,true,true,false,false,false,false,false,false,true>("sm86-warpwide-unrollcopy-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<4,2,4,4,64,3,8,1,true,true,false,true>("sm86-warpwide-streamb-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
     if((report<4,2,4,4,64,3,8,1,true,true,true,false>("sm86-warpwide-early-large-s3-fold-k64",p.maxThreadsPerMultiProcessor)))return 1;
     return 0;
