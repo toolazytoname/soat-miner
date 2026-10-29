@@ -1,5 +1,6 @@
-import math,unittest
-from analyze_matched_backends import weighted_window,validate_window_units,measurement_start
+import json,math,pathlib,tempfile,unittest
+from unittest.mock import patch
+from analyze_matched_backends import weighted_window,validate_window_units,measurement_start,submission_diagnostics,analyze,case
 def row(epoch,rate,core=74):
     return {"Epoch":epoch,"ReportedRate":rate,"Gpu":{"PowerLimit":220,"Power":220 if rate else 8,"Temperature":core,"Hotspot":90,"MemoryJunction":80}}
 class WeightedBenchmark(unittest.TestCase):
@@ -17,6 +18,42 @@ class WeightedBenchmark(unittest.TestCase):
     def test_legacy_round_keeps_its_recorded_anchor(self):
         session={"StartTime":"1970-01-01T00:01:40+00:00"}
         self.assertEqual(measurement_start({},session,[row(300,0)]),100)
+    def test_no_reply_is_not_silently_counted_as_rejection_or_credit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=pathlib.Path(folder)/"miner.log"
+            p.write_text(json.dumps({"event":"error","msg":"solution rejected nonce=fixture no reply from the pool"})+"\n"+json.dumps({"event":"warn","msg":"other"}))
+            self.assertEqual(submission_diagnostics(p,"soat")["unconfirmed_submissions"],1)
+            self.assertIsNone(submission_diagnostics(p,"krig")["unconfirmed_submissions"])
+    def test_unstable_observation_does_not_get_promoted_to_controlled_win(self):
+        def item(name,rate,steady):
+            return {"case":name,"real_pool_share_gate":True,"tail":{"steady":steady,"time_weighted_Tmac_s":rate,"mean_gpu_power_watts":220}}
+        samples=[item("A1",50,False),item("B",60,True),item("A2",50,True)]
+        with patch("analyze_matched_backends.load",return_value={"status":"passed","native_KRig_TH_to_Tmac_factor":1}),patch("analyze_matched_backends.case",side_effect=samples):
+            result=analyze(pathlib.Path("fixture"),pathlib.Path("units.json"))
+        self.assertFalse(result["comparison_valid"]);self.assertIsNone(result["krig_vs_source_throughput_percent"])
+        self.assertAlmostEqual(result["observed_fixed_window_comparison"]["krig_vs_source_percent"],20)
+    def test_completed_case_keeps_stale_shares_visible_without_claiming_clean_acceptance(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=pathlib.Path(folder);run=root/"run";(run/"selected-profile").mkdir(parents=True)
+            (run/"selected-profile/miner.log").write_text("",encoding="utf-8")
+            rows=[dict(row(i,50),Stage="selected-profile",ReportedRateUnit="T MAC/s",AcceptedShares=1,RejectedShares=0,StaleShares=1) for i in range(0,726,5)]
+            (run/"telemetry.ndjson").write_text("\n".join(json.dumps(r) for r in rows),encoding="utf-8")
+            def put(name,value):(root/name).write_text(json.dumps(value),encoding="utf-8")
+            put("plan.json",{"analysis_anchor":"first_selected_profile_epoch","cases":[{"name":"A1","planned_seconds":720}]})
+            put("A1-start.json",{"session":{"RunDirectory":str(run),"SessionId":"fixture"},"backend":"soat"})
+            stop={"operator_completed_case":True,"after":{"Status":"stopped","PowerRestored":True,"StopReason":"user_stop","SessionId":"fixture","AcceptedShares":1,"RejectedShares":0,"StaleShares":1},"actual_after":{"OldProcesses":[]}}
+            put("A1-stop.json",stop)
+            result=case(root,"A1",True)
+            self.assertTrue(result["measurement_complete"]);self.assertFalse(result["preview"])
+            self.assertEqual(result["miner_reported_stale"],1);self.assertFalse(result["real_pool_share_gate"])
+            stop["after"]["PowerRestored"]=False;put("A1-stop.json",stop)
+            with self.assertRaises(ValueError):case(root,"A1",True)
+    def test_unclean_share_gate_does_not_get_promoted_to_controlled_win(self):
+        samples=[{"case":name,"real_pool_share_gate":name!="B","tail":{"steady":True,"time_weighted_Tmac_s":rate,"mean_gpu_power_watts":220}} for name,rate in [("A1",50),("B",60),("A2",50)]]
+        with patch("analyze_matched_backends.load",return_value={"status":"passed","native_KRig_TH_to_Tmac_factor":1}),patch("analyze_matched_backends.case",side_effect=samples):
+            result=analyze(pathlib.Path("fixture"),pathlib.Path("units.json"))
+        self.assertFalse(result["comparison_valid"]);self.assertIsNone(result["krig_vs_source_throughput_percent"])
+        self.assertAlmostEqual(result["observed_fixed_window_comparison"]["krig_vs_source_percent"],20)
     def test_waiting_time_is_included_in_wall_throughput(self):
         rows=[row(i,0 if i<10 else 60) for i in range(0,21,5)]
         result=weighted_window(rows,20)

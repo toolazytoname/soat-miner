@@ -38,6 +38,14 @@ def validate_window_units(rows,expected,seconds=180,end_epoch=None):
 def measurement_start(plan,session,rows):
     if plan.get("analysis_anchor")=="first_selected_profile_epoch":return finite(rows[0]["Epoch"])
     return datetime.datetime.fromisoformat(session["StartTime"]).timestamp()
+def submission_diagnostics(log_path,backend):
+    if backend!="soat":return {"unconfirmed_submissions":None,"scope":"Not inferred from the closed miner API"}
+    count=0
+    for line in log_path.read_text(encoding="utf-8",errors="replace").splitlines():
+        try:event=json.loads(line)
+        except ValueError:continue
+        if event.get("event")=="error" and "no reply from the pool" in event.get("msg",""):count+=1
+    return {"unconfirmed_submissions":count,"scope":"Source no-reply events, separate from pool accepted/rejected counters"}
 def case(root,name,final):
     start=load(root/(name+"-start.json"));s=start["session"];backend=start["backend"]
     path=pathlib.Path(s["RunDirectory"])/"telemetry.ndjson"
@@ -55,14 +63,14 @@ def case(root,name,final):
     for a,b in zip(rows,rows[1:]):
         if any(b.get(k,0)<a.get(k,0) for k in ("AcceptedShares","RejectedShares","StaleShares")):raise ValueError("Share counters went backwards")
     tail=weighted_window(rows,end_epoch=measured_end)
-    last=rows[-1];stop=None
+    last=rows[-1];stop=None;share_gate=None
     if final:
         stop=load(root/(name+"-stop.json"))
         after=stop["after"]
         if not stop.get("operator_completed_case") or after.get("Status")!="stopped" or not after.get("PowerRestored") or after.get("StopReason")!="user_stop" or stop["actual_after"].get("OldProcesses"):raise ValueError("Case stop/ownership/power gate failed")
         if after.get("SessionId")!=s["SessionId"]:raise ValueError("Case session changed")
-        if after.get("RejectedShares",0) or after.get("StaleShares",0) or not after.get("AcceptedShares",0):raise ValueError("Real-pool share acceptance gate failed")
-    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"planned_seconds":planned,"measurement_start_epoch":anchor,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
+        share_gate=bool(after.get("AcceptedShares",0)) and not after.get("RejectedShares",0) and not after.get("StaleShares",0)
+    return {"case":name,"backend":backend,"session_id":s["SessionId"],"run_directory":s["RunDirectory"],"preview":not final,"measurement_complete":complete,"real_pool_share_gate":share_gate,"planned_seconds":planned,"measurement_start_epoch":anchor,"analysis_end_epoch":measured_end,"duration_observed_seconds":rows[-1]["Epoch"]-rows[0]["Epoch"],"miner_reported_accepted":last.get("AcceptedShares",0),"miner_reported_rejected":last.get("RejectedShares",0),"miner_reported_stale":last.get("StaleShares",0),"submission_diagnostics":submission_diagnostics(path.parent/"selected-profile/miner.log",backend),"native_unit":expected,"normalization_factor":1,"tail":tail,"stop_receipt":str(root/(name+"-stop.json")) if final else None}
 def analyze(root,unit_receipt):
     units=load(unit_receipt)
     if units.get("status")!="passed" or units.get("native_KRig_TH_to_Tmac_factor")!=1:raise ValueError("Independent unit calibration is required")
@@ -70,8 +78,8 @@ def analyze(root,unit_receipt):
     source=(a1["time_weighted_Tmac_s"]+a2["time_weighted_Tmac_s"])/2;closed=b["time_weighted_Tmac_s"]
     source_power=(a1["mean_gpu_power_watts"]+a2["mean_gpu_power_watts"])/2;closed_power=b["mean_gpu_power_watts"]
     drift=abs(a2["time_weighted_Tmac_s"]/a1["time_weighted_Tmac_s"]-1)*100
-    valid=all(c["tail"]["steady"] for c in cases) and drift<=3
-    return {"status":"complete" if valid else "needs_review","comparison_valid":valid,"scope":"One Windows RTX3090, original real pool/wallet/PPS+, 220 W cap, auto clocks/fans. Tail means include zero-rate waiting intervals. No wall-plug measurement or earning claim.","cases":cases,"source_bracketed_Tmac_s":source,"krig_Tmac_s":closed,"source_bracketed_gpu_power_watts":source_power,"krig_gpu_power_watts":closed_power,"source_control_drift_percent":drift,"krig_vs_source_throughput_percent":(closed/source-1)*100 if valid else None,"source_vs_krig_throughput_percent":(source/closed-1)*100 if valid else None,"source_gpu_Tmac_per_joule":source/source_power,"krig_gpu_Tmac_per_joule":closed/closed_power,"theoretical_fee_adjusted_work_not_measured_payout":{"source_fee_percent":0,"krig_localhost_fee_percent":3,"source_Tmac_s":source,"krig_Tmac_s":closed*.97,"krig_vs_source_percent":(closed*.97/source-1)*100 if valid else None},"share_count_limit":"Miner-reported shares are compatibility evidence, not a statistically precise income comparison. KRig API counters are not asserted to distinguish developer-pool shares.","unit_calibration":str(unit_receipt)}
+    valid=all(c["tail"]["steady"] and c["real_pool_share_gate"] is True for c in cases) and drift<=3
+    return {"status":"complete" if valid else "needs_review","comparison_valid":valid,"scope":"One Windows RTX3090, original real pool/wallet/PPS+, 220 W cap, auto clocks/fans. Tail means include zero-rate waiting intervals. No wall-plug measurement or earning claim.","cases":cases,"source_bracketed_Tmac_s":source,"krig_Tmac_s":closed,"source_bracketed_gpu_power_watts":source_power,"krig_gpu_power_watts":closed_power,"source_control_drift_percent":drift,"observed_fixed_window_comparison":{"krig_vs_source_percent":(closed/source-1)*100,"source_vs_krig_percent":(source/closed-1)*100,"interpretation":"Observed means include actual proof/network stalls. These numbers do not become a pure steady-kernel win when comparison_valid is false."},"krig_vs_source_throughput_percent":(closed/source-1)*100 if valid else None,"source_vs_krig_throughput_percent":(source/closed-1)*100 if valid else None,"source_gpu_Tmac_per_joule":source/source_power,"krig_gpu_Tmac_per_joule":closed/closed_power,"theoretical_fee_adjusted_work_not_measured_payout":{"source_fee_percent":0,"krig_localhost_fee_percent":3,"source_Tmac_s":source,"krig_Tmac_s":closed*.97,"krig_vs_source_percent":(closed*.97/source-1)*100 if valid else None},"share_count_limit":"Miner-reported shares are compatibility evidence, not a statistically precise income comparison. KRig API counters are not asserted to distinguish developer-pool shares.","unit_calibration":str(unit_receipt)}
 def main():
     ap=argparse.ArgumentParser();ap.add_argument("--root",type=pathlib.Path,required=True);ap.add_argument("--units",type=pathlib.Path);ap.add_argument("--case",choices=["A1","B","A2"]);ap.add_argument("--preview",action="store_true");ap.add_argument("--output",type=pathlib.Path);a=ap.parse_args()
     if a.case:result=case(a.root,a.case,not a.preview)
