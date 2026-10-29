@@ -27,6 +27,22 @@ The selected candidate enters a predeclared continuously warmed A/B/A: 300 secon
 
 The real-pool candidate entry in the separate manager repository requires the completed material confirmation, exact miner hash and matching full-buffer verifier records. The choice stays in RAM, preserves original wallet/pool/deadline, stops at the first accepted share or five mining minutes, and retains manual/thermal/GPU-yield guards. The default production file is not written.
 
+## Confirmed result and pool trial
+
+The confirmation completed at 2026-10-29 01:29 UTC. Every fixed final 180-second window passed the declared 2 C limits.
+
+| Case | T MAC/s | GPU W | Steady |
+| --- | ---: | ---: | --- |
+| A1 previous validated tile | 51.306869 | 219.767 | True |
+| B warpwide large S3 | 53.075287 | 219.798 | True |
+| A2 previous validated tile | 51.331796 | 219.758 | True |
+
+A-control drift was 0.048583%. Against the bracketing controls the confirmed full-attempt throughput gain was **3.421624%** and board-GPU efficiency gain **3.405156%**. These gains compare our new and previous open kernels. They do not establish a win over KRig, accepted-share income or whole-system energy savings.
+
+The identical binary was copied to the versioned app directory, SHA-256 `3151d5fa90a2d43a1dfc4d99f7de3ac7b2585db0e74ca9d5fe9e94bca35a8406`. A separate RAM-only trial on the original certificate- and hostname-verified Kryptex PRL route obtained one accepted share, zero rejected/stale shares and zero unconfirmed submission events. It stopped automatically after that acceptance; the owned processes exited and the original 370 W limit was restored. Production configuration stayed byte-for-byte unchanged during the trial.
+
+The pool sent its first job after about 58 seconds; four startup no-job warnings are retained. The TLS receipt also records one connection reset at trial shutdown. This is a compatibility test, not a stable pool-rate or profitability measurement. Full raw receipts remain in the Windows experiment directory.
+
 ## Commands
 
 Build the bounded target set on Windows:
