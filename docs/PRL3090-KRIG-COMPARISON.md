@@ -1,66 +1,44 @@
-# RTX 3090: open SOAT and closed KRig observations
+# RTX 3090: open SOAT and closed KRig comparison
 
-## Current repaired-app observations: counter audit correction
+## Current counter-corrected matched run — 2026-10-29 UTC
 
-**Correction: the earlier all-gates-passed classification is withdrawn.** A subsequent counter audit found one locally obsolete proof that was discarded before submission in A2. The synchronous Pearl path had left its combined failure counter at zero, hiding that event from a counters-only gate. Independent log checking now marks this comparison **needs review**. No obsolete proof was sent, and this event is not evidence of a pool rejection or invalid GPU math.
+The declared checks passed for this three-case run. The bracketing open mean was **53.831424 T MAC/s**, versus **59.305502** for KRig. KRig's gross observed full-loop throughput was **10.1689% higher**; the open mean was **9.2303% lower** using KRig as denominator. The open fork has not demonstrated a speed lead over KRig.
 
-The measured fixed-window numbers are unchanged. Source A1/A2 average **53.599876 T MAC/s** versus KRig **57.676079**; KRig's observed gross mean is **7.6049% higher**. This is an observed full-loop difference with a disclosed quality flag, not a strict confirmed winning percentage, payout estimate or pure-kernel measurement.
+| Case | Backend | Normalized T MAC/s | Mean GPU W | Core / hotspot / memory range C | Accepted at session stop |
+| --- | --- | ---: | ---: | --- | ---: |
+| A1 | Open SOAT | 53.981950 | 219.787 | 1.00 / 1.25 / 2.00 | 2 |
+| B | KRig 1.5.12 | 59.305502 | 219.679 | 1.00 / 0.62 / 2.00 | 3 |
+| A2 | Open SOAT | 53.680898 | 219.779 | 1.00 / 0.78 / 2.00 | 7 |
 
-| Case | Backend | Normalized T MAC/s | Mean GPU W | Accepted |
-| --- | --- | ---: | ---: | ---: |
-| A1 | Open SOAT | 53.307424 | 219.443 | 3 |
-| B | KRig | 57.676079 | 219.389 | 2 |
-| A2 | Open SOAT | 53.892329 | 219.821 | 7 |
+One Windows RTX 3090 24 GB, driver 581.29, 220 W board cap, automatic clocks/fans, original real pool/wallet/PPS+ mode. Each case collected at least 600 seconds from its first selected-profile telemetry; the predeclared reporting window is exactly +420..+600 seconds. Zero-rate waiting is retained. Cooling is outside the measurement clock; collection/stop overruns do not move the window. No profiler was attached.
 
-Every interval uses the originally declared +420..+600 seconds from first selected-profile telemetry, including zero-rate waiting. All intervals had zero measured idle time. Core/hotspot/memory ranges pass <=2 C, and source-control drift is 1.097229%, below 3%. All planned stops verified owned processes exited and restored the original 370 W cap. A1 contains zero client failure events; A2 contains one obsolete-job-not-sent event and zero no-reply events. The stricter combined failure gate is therefore false even though the legacy JSON showed rejected=0. Source stale outcomes are not separately reported; they must not be inferred from a placeholder zero alone.
+All thermal ranges were <=2 C, source-control drift was 0.557690% (limit 3%), and each case had accepted shares. Both open cases had zero combined client failures, zero independent failure-log events, zero obsolete-job-not-sent events and zero no-reply events. KRig's API reported zero rejected and stale shares. Source stale is a compatibility placeholder, not an independently measured stale count; no zero-stale claim is inferred from that field. The combined source failure field includes local verification failures, obsolete unsent work, uncertain no-reply outcomes and explicit negative replies, so it is not a pool-only rejection count.
 
-An earlier A2 attempt stopped before mining when a newly opened Orca chat renderer was conservatively classified as another GPU app. Its path/product/signature were checked and the desktop classification corrected. Completed A1/B receipts were reused byte-for-byte, only the unstarted A2 resumed, and all interruption/measurement data remain retained. The subsequent audit correction does not discard or replace any measured case.
+Each planned stop verified exact owned processes exited, the task finished successfully and the original 370 W cap was restored. Production config and both executable hashes were unchanged across the comparison. Short share counts establish compatibility, not a precise income comparison; KRig's API is not asserted to distinguish developer-pool shares.
 
-Source app: aa693da08d4a79eb3e7e9878020648dec913c12f91a44c07b636001a7a9f0c22. KRig 1.5.12: 61fc4ff4fa111a641f3d70345ff74d8620ab16db12319f29ed89791e9034f22f. Unit linkage uses prior hardware-verified KRig calibration plus unchanged source work accounting and full-buffer proof; this is not a fresh independent hardware calibration of this source binary.
+## Version, calibration and fees
 
-SOAT upstream and this fork have zero developer fee. KRig's verified localhost test route acknowledged 3% in RAM; its advertised legitimate native recognized Kryptex reference is 0%. Applying 3% to its observed gross work gives 55.945796 T MAC/s as arithmetic only, not measured income. The fee is not a Mac forwarding cost; all mining/management/TLS processes run on Windows.
+Open app SHA-256: 41263293ace4ac4a9901ceb6538adc59d17e0fcb95586f4f48970e8d549d2f54.
+KRig 1.5.12 SHA-256: 61fc4ff4fa111a641f3d70345ff74d8620ab16db12319f29ed89791e9034f22f.
 
-The open app remains selected for editable compute ownership, not a demonstrated speed lead. Two later scheduling candidates passed full-buffer checks but observed -0.47% and -0.72% in their warmed screen and were not promoted. A separate reporting fix now publishes synchronous/null-source failures and adds independent failure-log guards. Its build/deployment gates are recorded separately; it does not change mining/proof/wire/rate semantics or claim a speed improvement.
+The open app is a native SM86 build, shape 4096x65536, warpwide large S3 fold K64, K2048/rank128. The synchronous/null-source counter fix passed 13 CPU protocol checks and 55 related tool checks in each of normal Python and -O, four matching GPU proof/resource cases, and the two real-pool cases above. The host reporting fix does not change GPU math, proof wire semantics or rate accounting.
 
-Windows observations: D:\AI\Playgrounds\soat-miner\20261029-postmove-krig-comparison-04. Counter regression/audit: D:\AI\Playgrounds\soat-miner\20261029-submission-readout. The original counters-only summary is preserved alongside the corrected summary. Original wallet, pool, payout threshold and absolute deadline remain unchanged.
+[Prior independent hardware calibration](PRL3090-UNIT-CALIBRATION.md) established KRig native TH/s = T MAC/s for the pinned device/version/configuration. The current linkage checks unchanged work accounting and matching full-buffer proofs. This is a transferred calibration, not a fresh independent hardware counter capture of this binary.
 
-## Earlier comparison retained as history (quality gates did not all pass)
+SOAT upstream and this fork have 0% developer fee. KRig acknowledged 3% for this verified localhost TLS route, in RAM for B only; the legitimate native recognized-Kryptex reference is advertised as 0%. At 3%, arithmetic fee-adjusted KRig work is 57.526337 T MAC/s, 6.8639% above the open mean. This is not measured payout. Pool service fees are separate.
 
+Management, compute and TLS verification all run on Windows. The fee is not a Mac forwarding charge. The selected daily backend remains open SOAT for editable compute ownership, authenticated transport and zero developer fee. KRig remains the faster observed alternative. Neither wall-plug power nor daily net earnings were measured.
 
-Measured on 2026-10-29 UTC on one Windows RTX 3090 24 GB, driver 581.29, a 220 W board cap and automatic clocks/fans. The original Kryptex PRL pool, wallet and PPS+ mode were retained. These are real-pool wall-rate observations, including proof/network activity.
+## Retained history and optimization scope
 
-### Method and quality
+The earlier aa693 app comparison under 20261029-postmove-krig-comparison-04 remains needs_review: its observed 53.599876 versus 57.676079 T MAC/s values are preserved, but A2 had one locally obsolete proof discarded before submission that the old combined counter missed. The earlier all-gates-passed classification was withdrawn; the old 7.6049% observation is not relabeled as a clean confirmed result. No obsolete proof was sent and that event alone is not evidence of invalid GPU math or a pool rejection. The fresh run above uses the repaired counter plus independent log checking.
 
-The sequence was open / closed / open. Each case captured at least 720 seconds from its first selected-profile GPU telemetry. The predeclared reporting window was +540 through +720 seconds; later stop latency stays in the raw records. Intentional cooling was excluded from the clock. Rates are time-weighted, retain zero-rate samples and are not extrapolated over missing telemetry. No profiler was attached during these cases.
+An older 50.8358 versus 59.7103 T MAC/s set also remains flagged: A1 exceeded the hotspot stability gate, B reported one stale share and A1 logged one no-reply submission. Original logs, summaries and corrections remain retained.
 
-[Independent unit calibration](PRL3090-UNIT-CALIBRATION.md) established native KRig TH/s = T MAC/s for this pinned device/version/configuration.
+The separately validated +9.709% and subsequent +3.4216% improvements are against their respective previous open-source baselines, not KRig; do not add the percentages. Two early-copy candidates were slower by approximately 5.5–5.7%. Two later scheduling candidates passed all ten GPU checks but observed -0.47% and -0.72% in a stable warmed screen and did not reach the predeclared +3% promotion gate. Neither replaced production.
 
-| Case | T MAC/s, fixed final 180 s | Mean GPU W | Core/hotspot/memory range C | Accepted / rejected / stale at session end | Strict thermal gate |
-| --- | ---: | ---: | --- | --- | --- |
-| A1 (soat) | 50.8789 | 219.21 | 2.00 / 3.41 / 0.00 | 1 / 0 / 0 | fail |
-| B (krig) | 59.7103 | 219.72 | 0.00 / 0.59 / 0.00 | 4 / 0 / 1 | pass |
-| A2 (soat) | 50.7928 | 219.78 | 0.00 / 0.56 / 0.00 | 3 / 0 / 0 | pass |
+## Reproduction and bounded experience
 
-The bracketing open mean was **50.8358 T MAC/s**, with **0.169%** A1/A2 drift. The closed observation was **59.7103 T MAC/s**; its raw fixed-window rate was **17.46%** higher.
+Analysis tool: tools/analyze_matched_backends.py. Current Windows records: D:\AI\Playgrounds\soat-miner\20261029-submission-readout\matched, including the original plan, start/stop receipts, fixed-window results, comparison-summary.json and comparison-quality.json. Protocol/build/proof/deployment records are in the parent directory; raw telemetry and miner logs remain in the case run directories listed by the summaries.
 
-**The complete strict comparison is flagged `comparison_valid: false`.** A1 hotspot range exceeded the 2 C thermal gate; B reported one stale share and failed the clean-share gate. A1 also logged one no-reply submission, recorded separately from pool accepted/rejected counters. This set supports a scoped operational observation; it does not establish a clean, steady-kernel winning percentage or a payout advantage. All three cases stopped normally, their owned processes exited and the original 370 W cap was restored.
-
-The two earlier interrupted rounds remain on Windows. This round used TCP keepalive without an application-message idle cutoff; certificate and hostname verification remained enabled. Raw relay status, shutdown errors, observations and case overruns are retained.
-
-### Fees and selection
-
-Both upstream SOAT and this open fork have **0% developer fee**. The installed KRig 1.5.12 help specifies 0% for Kryptex endpoints and at least 3% elsewhere. It actually logged 3% when connected through the verified localhost relay. The 3% acknowledgement was temporary and in memory for B; the production config file was byte-for-byte unchanged. Open-source licensing and developer-fee policy are separate choices. Pool service fees are separate.
-
-Applying the advertised 3% as a simple work-budget model gives **57.9190 T MAC/s** for the closed observation versus **50.8358** open. This model is not a measured payout. The KRig API is not asserted to separate developer-pool shares; short share counts are compatibility evidence rather than an income estimate.
-
-The selected everyday backend remains the open fork for editable compute source, verified pool compatibility and zero developer fee. The closed binary remains a documented performance reference. The open fork has not demonstrated a speed lead over KRig. Its separately validated **+9.709%** optimization is relative to the preserved original SOAT compute loop; see [controlled source results](PRL3090-RESULTS.md).
-
-### Reproduction and records
-
-- Analysis: `tools/analyze_matched_backends.py`; 15 CPU cases pass in both normal Python and `-O`.
-- Source binary SHA-256: `820d7f63ca3d4806f8bb88ab514ed5a5078618c1a4cb0b459cc8c63f47f6f35b`.
-- KRig 1.5.12 SHA-256: `61fc4ff4fa111a641f3d70345ff74d8620ab16db12319f29ed89791e9034f22f`.
-- Raw Windows directory: `D:\AI\Playgrounds\soat-miner\20261028-prl3090\closed-source-comparison\matched-performance-03`.
-- It contains the plan, A1/B/A2 start and stop receipts, fixed-window summaries, native API observations, unit-calibration reference, unchanged-config receipt and original logs.
-
-The payout experience continues under its original threshold and hard deadline. No completed payout, wall-plug energy measurement or daily-profit estimate is claimed.
+Original wallet, pool, 1 PRL threshold and absolute deadline (2026-10-30 06:52:36 +08:00) remain unchanged. The payout experience is still pending. No auto-retry, boot trigger, currency conversion or completed payout is claimed.
