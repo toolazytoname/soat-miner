@@ -96,14 +96,14 @@ The repaired native SM86 miner is SHA-256 aa693da08d4a79eb3e7e9878020648dec913c1
 
 The guard's desktop startup check retains 10% utilization and 2048 MiB limits for experiments. A high reported percentage is excused only with all of board power <=30 W, graphics clock <=405 MHz and memory clock <=810 MHz. Independent unknown GPU-client, thermal and cancellation checks remain in force. This avoids a low-clock desktop false positive without accepting an actively clocked workload. The production manager additionally uses a bounded 30-second idle preflight wait. No GPU algorithm, proof, clock setting, driver or security setting changes in this repair.
 
-All 39 relevant Python checks pass in normal and optimized modes, including the new eight preflight load scenarios. Real-pool acceptance of the newly pinned app and the new matched KRig comparison are still pending at this commit; earlier observations are not substituted for those gates. Windows repair evidence is under D:\\AI\\Playgrounds\\soat-miner\\20261029-postmove-krig-comparison and its -02 continuation.
+All 39 relevant Python checks pass in normal and optimized modes, including the new eight preflight load scenarios. Real-pool acceptance and the new matched KRig comparison were pending at preparation commit 9c2c002. They have now completed; the current repaired-app result is documented in PRL3090-KRIG-COMPARISON.md. Earlier observations were not substituted for the new gates. Windows repair evidence is under D:\\AI\\Playgrounds\\soat-miner\\20261029-postmove-krig-comparison and its -02 continuation.
 
 
-## Queued warpwide fragment-scheduling experiments
+## Warpwide fragment-scheduling follow-up
 
 Two opt-in hypotheses now use the identical current 256-thread, 256x128, K64, three-stage warpwide geometry. The stream-B candidate loads one B fragment and updates all independent A accumulators before loading the next B fragment. It aims to shorten live ranges and interleave shared loads with MMA; fewer registers or a speed increase are hypotheses, not observed results. The early-copy candidate uses the existing prefetch path with this exact warpwide geometry, separating it from the previously rejected 512-thread candidates. Default template selection and production app are unchanged.
 
-Native SM86 compilation completed in 43.7 seconds, before the current KRig fixed measurement window (selected-profile seconds 66..107; measured window begins at 420). Experimental miner SHA-256 is ceb7eadd7e9fc20bd5e070a223dc249618b5761956738c198581fc1227f38b1f. The current original-pool comparison continues using the immutable aa693 repaired app; the experimental app has not run on GPU at this commit.
+Native SM86 compilation completed in 43.7 seconds, before the current KRig fixed measurement window (selected-profile seconds 66..107; measured window begins at 420). Experimental miner SHA-256 is ceb7eadd7e9fc20bd5e070a223dc249618b5761956738c198581fc1227f38b1f. The current original-pool comparison continues using the immutable aa693 repaired app; the experimental app had not run on GPU at preparation commit e8c351e. Its subsequent complete validation is recorded below.
 
 Before timing, both candidates and the recompiled control require all three full transcript-buffer checks against the independent oracle plus actual resource inspection. A bounded warmed screen will bracket two candidates with three controls. Only an observed >=3% throughput and GPU-efficiency gain, stable temperatures and <=2% control spread qualifies for longer A/B/A confirmation. Any production change additionally requires real-pool acceptance. Negative results are retained; no automatic promotion or retry is installed.
 
@@ -111,3 +111,16 @@ The experiment guard now waits up to 30 seconds for an idle sample before child 
 
 
 The final matched-control attempt was interrupted during cooldown when the user opened the local Orca chat application. Its actual D:\Apps\Orca\Orca.exe path, valid SignPath Foundation signature, product metadata and Chromium GPU-renderer command were checked. Orca joins the existing desktop chat/browser classification. No mining child or measurement window had started in that interrupted control; its receipts are retained. Completed A1 and KRig B data are reused, and only the unstarted final control is explicitly resumed after this narrow fix. Model servers and other non-desktop GPU applications still trigger the existing yield guard.
+
+
+### Full-buffer gate for the scheduling follow-up
+
+All ten guarded cases passed: resource inspection, then three shapes each for the rebuilt control, streamed-B candidate and warpwide early-copy candidate. Every transcript comparison reported zero differing words, every child exited 0, and every guard restored the original power. The largest shape checks 1,048,576 transcript tiles per variant. No other owned GPU child remained after the suite.
+
+| Variant | Registers/thread | Local bytes/thread | Dynamic shared bytes | Resident blocks/SM |
+| --- | ---: | ---: | ---: | ---: |
+| Recompiled warpwide control | 210 | 0 | 92160 | 1 |
+| Streamed B | 210 | 0 | 92160 | 1 |
+| Warpwide early copy | 209 | 0 | 92160 | 1 |
+
+The streamed-B source rewrite did not reduce the compiled register count. Neither these resources nor theoretical occupancy prove a speed improvement. A separately predeclared 360-second warmup plus five 90-second A0/C1/A1/C2/A2 cases is now screening both candidates; all controls use the same rebuilt binary. A qualifying candidate must later confirm against the actual deployed aa693 app, so a changed compiler baseline cannot masquerade as a production gain. Production remains unchanged while this bounded screen runs.
