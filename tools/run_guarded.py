@@ -100,7 +100,9 @@ DESKTOP_PROCESSES = {'dwm.exe', 'explorer.exe', 'shellhost.exe', 'msedge.exe',
                      'applicationframehost.exe', 'textinputhost.exe', 'tabtip.exe',
                      'logonui.exe', 'armourycrate.exe', 'gameviewer.exe',
                      'phoneexperiencehost.exe', 'realtekaudiocontrol.exe',
-                     'crossdeviceresume.exe', 'systemsettings.exe'}
+                     'crossdeviceresume.exe', 'systemsettings.exe',
+                     'startmenuexperiencehost.exe', 'searchhost.exe',
+                     'shellexperiencehost.exe'}
 
 
 class MiningLease:
